@@ -6,6 +6,8 @@ import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
+import org.MegaNoob.ultimatehotbars.network.PacketHandler;
+
 
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
@@ -14,6 +16,9 @@ public class ultimatehotbars {
     public static final int MAX_PAGES        = 100; // total pages available
 
     public ultimatehotbars(final FMLJavaModLoadingContext context) {
+        // Register our sync packet
+        PacketHandler.register();
+
         IEventBus modBus = context.getModEventBus();
         modBus.addListener(this::onClientSetup);
 
