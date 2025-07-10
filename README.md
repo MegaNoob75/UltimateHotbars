@@ -1,5 +1,8 @@
 # UltimateHotbars
 
+<img width="854" height="480" alt="2025-07-06_09 46 46" src="https://github.com/user-attachments/assets/8b6f9a7e-de68-4e27-8865-9c3f34993c1c" />
+<img width="854" height="480" alt="2025-07-06_09 46 49" src="https://github.com/user-attachments/assets/825fc551-af80-42d7-89c9-381c9a05c03b" />
+
 [![Minecraft Version](https://img.shields.io/badge/Minecraft-1.20.1-green)](https://minecraft.net) [![Forge Version](https://img.shields.io/badge/Forge-47.4.3-blue)](https://files.minecraftforge.net/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 UltimateHotbars replaces Minecraft’s vanilla hotbar system: **100 pages** of **10 hotbars** each (1,000 total), fully synced between client and server.
