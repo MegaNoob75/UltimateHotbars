@@ -57,12 +57,9 @@ public class KeyBindings {
                     KeyModifier.NONE, InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_DOWN, "key.categories.ultimatehotbars");
 
-        public static final KeyMapping CLEAR_HOTBAR = new KeyMapping(
-            "key.ultimatehotbars.clear_hotbar",
-            InputConstants.Type.KEYSYM,
-            GLFW.GLFW_KEY_DELETE,
-            "key.categories.ultimatehotbars"
-    );
+    public static final KeyMapping CLEAR_HOTBAR =
+            new KeyMapping("key.ultimatehotbars.clear_hotbar", InputConstants.Type.KEYSYM,
+                    GLFW.GLFW_KEY_DELETE, "key.categories.ultimatehotbars");
 
     @SubscribeEvent
     public static void register(RegisterKeyMappingsEvent event) {
@@ -72,12 +69,14 @@ public class KeyBindings {
         event.register(DECREASE_PAGE);
         event.register(INCREASE_PAGE);
         event.register(OPEN_GUI);
+
         // GUI-only arrow keys
         event.register(ARROW_LEFT);
         event.register(ARROW_RIGHT);
         event.register(ARROW_UP);
         event.register(ARROW_DOWN);
 
-
+        // clear hotbar keybind
+        event.register(CLEAR_HOTBAR);
     }
 }

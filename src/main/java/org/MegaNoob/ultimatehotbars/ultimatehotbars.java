@@ -22,8 +22,9 @@ public class ultimatehotbars {
         IEventBus modBus = context.getModEventBus();
         modBus.addListener(this::onClientSetup);
 
-        MinecraftForge.EVENT_BUS.register(new ClientEvents());
-
+       MinecraftForge.EVENT_BUS.register(new ClientEvents());
+        // Force KeyBindings class to load
+       // Class<?> ignored = org.MegaNoob.ultimatehotbars.client.KeyBindings.class;
         // Save the hotbar when Minecraft is closing
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             HotbarManager.syncFromGame();
@@ -32,7 +33,7 @@ public class ultimatehotbars {
 
     private void onClientSetup(final FMLClientSetupEvent event) {
         HotbarManager.loadHotbars();  // OK to keep, loads the saved data early
-        MinecraftForge.EVENT_BUS.register(new ClientEvents());
+      //  MinecraftForge.EVENT_BUS.register(new ClientEvents());
     }
 
 }

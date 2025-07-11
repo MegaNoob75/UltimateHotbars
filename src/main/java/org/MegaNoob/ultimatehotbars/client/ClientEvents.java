@@ -18,12 +18,6 @@ public class ClientEvents {
     private boolean didInitialSync = false;
     private int lastSelectedSlot = -1;
 
-    @SubscribeEvent
-    public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-        event.register(KeyBindings.OPEN_GUI);
-        event.register(KeyBindings.CLEAR_HOTBAR);
-        // Register additional keybindings here
-    }
 
     @SubscribeEvent
     public void onScreenKey(ScreenEvent.KeyPressed.Post event) {
@@ -40,20 +34,19 @@ public class ClientEvents {
             HotbarManager.syncFromGame();
 
             if (keyCode == GLFW.GLFW_KEY_LEFT || KeyBindings.ARROW_LEFT.isActiveAndMatches(inputKey)) {
-                if (ctrl) HotbarManager.setPage(HotbarManager.getPage() - 1);
-                else      HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
-                event.setCanceled(true);
-            } else if (keyCode == GLFW.GLFW_KEY_RIGHT || KeyBindings.ARROW_RIGHT.isActiveAndMatches(inputKey)) {
-                if (ctrl) HotbarManager.setPage(HotbarManager.getPage() + 1);
-                else      HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
-                event.setCanceled(true);
-            } else if (keyCode == GLFW.GLFW_KEY_UP || KeyBindings.ARROW_UP.isActiveAndMatches(inputKey)) {
-                HotbarManager.setPage(HotbarManager.getPage() + 1);
-                event.setCanceled(true);
-            } else if (keyCode == GLFW.GLFW_KEY_DOWN || KeyBindings.ARROW_DOWN.isActiveAndMatches(inputKey)) {
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
                 event.setCanceled(true);
+            } else if (keyCode == GLFW.GLFW_KEY_RIGHT || KeyBindings.ARROW_RIGHT.isActiveAndMatches(inputKey)) {
+                HotbarManager.setPage(HotbarManager.getPage() + 1);
+                event.setCanceled(true);
+            } else if (keyCode == GLFW.GLFW_KEY_UP || KeyBindings.ARROW_UP.isActiveAndMatches(inputKey)) {
+                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
+                event.setCanceled(true);
+            } else if (keyCode == GLFW.GLFW_KEY_DOWN || KeyBindings.ARROW_DOWN.isActiveAndMatches(inputKey)) {
+                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
+                event.setCanceled(true);
             }
+
 
             // Clear hotbar from inventory
             if (KeyBindings.CLEAR_HOTBAR.isActiveAndMatches(inputKey)) {
