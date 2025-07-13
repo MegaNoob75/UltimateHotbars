@@ -168,4 +168,9 @@ public class HotbarManager {
         // Return a copy so GUI modifications can’t poke your master list
         return new ArrayList<>(pages.get(currentPage));
     }
+
+    public static void cycleHotbar(int direction) {
+        setHotbar(getHotbar() + direction);
+    }
+
 }

@@ -185,3 +185,65 @@ tasks.named('jar', Jar).configure {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
 }
+
+// Task to increment patch version (x.y.Z)
+task incrementVersion {
+    doLast {
+        def propsFile = file("gradle.properties")
+        def props = new Properties()
+        propsFile.withInputStream { props.load(it) }
+
+        def version = props["mod_version"]
+        def parts = version.tokenize(".").collect { it as int }
+
+        // Increment patch version
+        if (parts.size() != 3) throw new GradleException("mod_version must be in format x.y.z")
+
+        parts[2] += 1
+        def newVersion = "${parts[0]}.${parts[1]}.${parts[2]}"
+        props.setProperty("mod_version", newVersion.toString())
+
+        // Save back to gradle.properties
+        propsFile.withOutputStream { props.store(it, null) }
+
+        println "Updated mod_version to $newVersion"
+    }
+
+    tasks.named('jar').configure {
+        dependsOn 'incrementVersion'
+    }
+
+    // Update with your actual Minecraft mods folder path
+    def mcModsFolder = file("C:/Users/ross7/AppData/Roaming/PrismLauncher/instances/test/minecraft/mods")
+
+// Task to copy the JAR and remove old versions
+    task installModJar {
+        dependsOn jar
+
+        doLast {
+            def modId = project.mod_id
+            def jarName = jar.archiveFileName.get()
+            def buildJar = jar.archiveFile.get().asFile
+
+            // Delete old JARs with the same mod ID
+            mcModsFolder.listFiles(new FilenameFilter() {
+                boolean accept(File dir, String name) {
+                    return name.startsWith("${modId}-") && name.endsWith(".jar")
+                }
+            })?.each { it.delete() }
+
+            // Copy new JAR
+            copy {
+                from buildJar
+                into mcModsFolder
+            }
+
+            println "✅ Installed ${jarName} to Minecraft mods folder."
+        }
+    }
+    tasks.named('build') {
+        finalizedBy 'installModJar'
+    }
+
+
+}

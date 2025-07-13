@@ -1,17 +1,17 @@
 {
   "key.categories.ultimatehotbars": "Ultimate Hotbars",
 
-  "key.ultimatehotbars.dec_hotbar":   "In Game: Previous Hotbar",
-  "key.ultimatehotbars.inc_hotbar":   "In Game: Next Hotbar",
+  "key.ultimatehotbars.dec_hotbar": "Previous Hotbar",
+  "key.ultimatehotbars.inc_hotbar": "Next Hotbar",
 
-  "key.ultimatehotbars.dec_page":     "In Game: Previous Hotbar Page",
-  "key.ultimatehotbars.inc_page":     "In Game: Next Hotbar Page",
+  "key.ultimatehotbars.dec_page": "Previous Hotbar Page",
+  "key.ultimatehotbars.inc_page": "Next Hotbar Page",
 
-  "key.ultimatehotbars.open_gui":     "Open Hotbars GUI",
+  "key.ultimatehotbars.open_gui": "Open Hotbars GUI",
   "key.ultimatehotbars.clear_hotbar": "Clear Current Hotbar",
 
-  "key.ultimatehotbars.arrow_left":   "GUI: Previous Page",
-  "key.ultimatehotbars.arrow_right":  "GUI: Next Page",
-  "key.ultimatehotbars.arrow_up":     "GUI: Next Page",
-  "key.ultimatehotbars.arrow_down":   "GUI: Previous Page"
+  "key.ultimatehotbars.arrow_left": "GUI: Previous Page (←)",
+  "key.ultimatehotbars.arrow_right": "GUI: Next Page (→)",
+  "key.ultimatehotbars.arrow_up": "GUI: Scroll Up A Hotbar (↑)",
+  "key.ultimatehotbars.arrow_down": "GUI: Scroll Down A Hotbar  (↓)"
 }

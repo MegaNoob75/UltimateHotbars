@@ -15,17 +15,22 @@ import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import org.lwjgl.glfw.GLFW;
 import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.KeyMapping;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.List;
 
 public class HotbarGuiScreen extends Screen {
-    @SuppressWarnings("removal")
-    private static final ResourceLocation HOTBAR_TEX =
-            new ResourceLocation("textures/gui/widgets.png");
+    private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
 
     private EditBox pageInput;
+
+    private static final long INITIAL_DELAY_MS = 300;
+    private static final long REPEAT_INTERVAL_MS = 100;
+    private final boolean[] keyHeld = new boolean[4];
+    private final long[] keyPressStart = new long[4];
+    private final long[] lastRepeat = new long[4];
 
     public HotbarGuiScreen() {
         super(Component.literal("Virtual Hotbars"));
@@ -50,77 +55,105 @@ public class HotbarGuiScreen extends Screen {
         addRenderableWidget(pageInput);
     }
 
-    public void updatePageInput() {
-        pageInput.setValue(String.valueOf(HotbarManager.getPage() + 1));
+    @Override
+    public void tick() {
+        super.tick();
+        long now = System.currentTimeMillis();
+
+        KeyMapping[] keys = {
+                KeyBindings.ARROW_LEFT,
+                KeyBindings.ARROW_RIGHT,
+                KeyBindings.ARROW_UP,
+                KeyBindings.ARROW_DOWN
+        };
+
+        for (int i = 0; i < keys.length; i++) {
+            if (keys[i].isDown()) {
+                if (!keyHeld[i]) {
+                    keyHeld[i] = true;
+                    keyPressStart[i] = now;
+                    lastRepeat[i] = 0;
+                    handleArrowKey(i);
+                } else {
+                    long heldTime = now - keyPressStart[i];
+                    if (heldTime >= INITIAL_DELAY_MS && now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
+                        lastRepeat[i] = now;
+                        handleArrowKey(i);
+                    }
+                }
+            } else {
+                keyHeld[i] = false;
+            }
+        }
     }
 
-    public void clear() {
-        HotbarManager.getCurrentHotbar().clear();
-        HotbarManager.syncToGame();
 
+
+    private void handleArrowKey(int index) {
+        switch (index) {
+            case 0 -> {
+                int prev = HotbarManager.getPage();
+                HotbarManager.syncFromGame();
+                HotbarManager.setPage(prev - 1);
+                if (HotbarManager.getPage() != prev) updatePageInput();
+            }
+            case 1 -> {
+                int prev = HotbarManager.getPage();
+                HotbarManager.syncFromGame();
+                HotbarManager.setPage(prev + 1);
+                if (HotbarManager.getPage() != prev) updatePageInput();
+            }
+            case 2 -> {
+                HotbarManager.syncFromGame();
+                HotbarManager.cycleHotbar(-1);
+            }
+            case 3 -> {
+                HotbarManager.syncFromGame();
+                HotbarManager.cycleHotbar(+1);
+            }
+        }
+    }
+
+
+    public void updatePageInput() {
+        String expected = String.valueOf(HotbarManager.getPage() + 1);
+        if (!pageInput.getValue().equals(expected)) {
+            // Temporarily disable responder
+            pageInput.setResponder(s -> {});
+            pageInput.setValue(expected);
+            // Restore original responder
+            pageInput.setResponder(value -> {
+                try {
+                    int p = Integer.parseInt(value) - 1;
+                    if (p >= 0 && p < ultimatehotbars.MAX_PAGES) {
+                        HotbarManager.syncFromGame();
+                        HotbarManager.setPage(p);
+                    }
+                } catch (NumberFormatException ignored) {}
+            });
+        }
     }
 
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+        if (pageInput.isFocused() &&
+                (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT ||
+                        keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
+            return false;
+        }
+
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             HotbarManager.getCurrentHotbar().clear();
             HotbarManager.syncToGame();
             return true;
         }
 
-        if (keyCode == KeyBindings.OPEN_GUI.getKey().getValue()) {
-            Minecraft.getInstance().setScreen(null);
-            return true;
-        }
-
-        switch (keyCode) {
-            case GLFW.GLFW_KEY_UP -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
-                return true;
-            }
-            case GLFW.GLFW_KEY_DOWN -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
-                return true;
-            }
-            case GLFW.GLFW_KEY_LEFT -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setPage(HotbarManager.getPage() - 1);
-                updatePageInput();
-                return true;
-            }
-            case GLFW.GLFW_KEY_RIGHT -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setPage(HotbarManager.getPage() + 1);
-                updatePageInput();
-                return true;
-            }
-            default -> {
-                return super.keyPressed(keyCode, scanCode, modifiers);
-            }
-        }
+        // ✅ DO NOT handle OPEN_GUI here — it's now centralized in ClientEvents
+        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-    @SubscribeEvent
-    public static void onInventoryKey(ScreenEvent.KeyPressed event) {
-        if (!(event.getScreen() instanceof Screen)) return;
-        if (KeyBindings.CLEAR_HOTBAR.isActiveAndMatches(InputConstants.getKey(event.getKeyCode(), event.getScanCode()))) {
-            HotbarManager.getCurrentHotbar().clear();
-            HotbarManager.syncToGame();
-            event.setCanceled(true);
-        }
-        if (KeyBindings.OPEN_GUI.isActiveAndMatches(InputConstants.getKey(event.getKeyCode(), event.getScanCode()))) {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.screen instanceof HotbarGuiScreen) {
-                mc.setScreen(null);
-            } else {
-                mc.setScreen(new HotbarGuiScreen());
-            }
-            event.setCanceled(true);
-        }
-    }
+
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
@@ -152,20 +185,16 @@ public class HotbarGuiScreen extends Screen {
             graphics.blit(HOTBAR_TEX, baseX - border, y - 3, 0, 0, bgWidth, bgHeight);
 
             if (row == selHb) {
-                graphics.fill(
-                        baseX - border, y - 3,
+                graphics.fill(baseX - border, y - 3,
                         baseX - border + bgWidth, y - 3 + bgHeight,
-                        0x80FFFFFF
-                );
+                        0x80FFFFFF);
             }
 
             String lbl = String.valueOf(row + 1);
-            graphics.drawString(
-                    this.font, lbl,
+            graphics.drawString(this.font, lbl,
                     baseX - border - 3 - this.font.width(lbl),
                     y + (rowHeight - this.font.lineHeight) / 2,
-                    0xFFFFFF
-            );
+                    0xFFFFFF);
 
             int yOffset = y - 3;
             for (int slot = 0; slot < Hotbar.SLOT_COUNT; slot++) {
@@ -182,21 +211,21 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            int topY = pageInput.getY() + pageInput.getHeight() + 6;
-            int bottomY = this.height - 30;
-            int rows = HotbarManager.HOTBARS_PER_PAGE;
-            int rowH = 22;
-            int totalH = rows * rowH;
-            int startY = topY + ((bottomY - topY) - totalH) / 2;
-            int midX = this.width / 2;
-            int slotW = 18;
-            int totalW = Hotbar.SLOT_COUNT * slotW;
-            int baseX = midX - totalW / 2;
+        int topY = pageInput.getY() + pageInput.getHeight() + 6;
+        int bottomY = this.height - 30;
+        int rows = HotbarManager.HOTBARS_PER_PAGE;
+        int rowHeight = 22;
+        int totalH = rows * rowHeight;
+        int startY = topY + ((bottomY - topY) - totalH) / 2;
+        int midX = this.width / 2;
+        int slotW = 18;
+        int totalW = Hotbar.SLOT_COUNT * slotW;
+        int baseX = midX - totalW / 2;
 
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
             if (mouseX >= baseX && mouseX < baseX + totalW &&
                     mouseY >= startY && mouseY < startY + totalH) {
-                int row = (int)((mouseY - startY) / rowH);
+                int row = (int)((mouseY - startY) / rowHeight);
                 row = Math.max(0, Math.min(rows - 1, row));
                 HotbarManager.syncFromGame();
                 HotbarManager.setHotbar(row);
@@ -207,18 +236,8 @@ public class HotbarGuiScreen extends Screen {
                 return true;
             }
         }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            int topY = pageInput.getY() + pageInput.getHeight() + 6;
-            int bottomY = this.height - 30;
-            int rows = HotbarManager.HOTBARS_PER_PAGE;
-            int rowHeight = 22;
-            int totalH = rows * rowHeight;
-            int startY = topY + ((bottomY - topY) - totalH) / 2;
-            int midX = this.width / 2;
-            int slotW = 18;
-            int totalW = Hotbar.SLOT_COUNT * slotW;
-            int baseX = midX - totalW / 2;
 
+        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
             if (mouseX >= baseX && mouseX < baseX + totalW &&
                     mouseY >= startY && mouseY < startY + totalH) {
                 int row = (int)((mouseY - startY) / rowHeight);
@@ -241,6 +260,7 @@ public class HotbarGuiScreen extends Screen {
                 return true;
             }
         }
+
         return super.mouseClicked(mouseX, mouseY, button);
     }
 
@@ -248,4 +268,12 @@ public class HotbarGuiScreen extends Screen {
     public boolean shouldCloseOnEsc() {
         return true;
     }
+
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
+
+
 }
