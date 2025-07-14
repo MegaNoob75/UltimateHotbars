@@ -14,7 +14,7 @@ public class ultimatehotbars {
     public static final String MODID = "ultimatehotbars";
     public static final int HOTBARS_PER_PAGE = 10;  // how many hotbars per page
     public static final int MAX_PAGES        = 100; // total pages available
-    public static final boolean DEBUG_MODE = true;
+    public static boolean DEBUG_MODE = false;
 
     public ultimatehotbars(final FMLJavaModLoadingContext context) {
         // Register our sync packet

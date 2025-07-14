@@ -5,6 +5,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
@@ -13,8 +15,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 import org.lwjgl.glfw.GLFW;
 
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
@@ -29,6 +29,8 @@ public class ClientEvents {
     private static final long[] keyPressStart = new long[8];
     private static final long[] lastRepeat = new long[8];
     private static final boolean[] skipUntilReleased = new boolean[8];
+
+    private static Screen lastScreen = null;
 
     @SubscribeEvent
     public static void onScreenKey(ScreenEvent.KeyPressed.Post event) {
@@ -74,10 +76,7 @@ public class ClientEvents {
 
         if (KeyBindings.OPEN_GUI.isActiveAndMatches(key)) {
             if (!guiJustClosed) {
-                HotbarManager.syncFromGame();
-                Minecraft.getInstance().tell(() -> {
-                    mc.setScreen(new HotbarGuiScreen());
-                });
+                mc.setScreen(new HotbarGuiScreen());
             }
         }
     }
@@ -116,6 +115,11 @@ public class ClientEvents {
         HotbarManager.setHotbar(hotbar, "scroll wheel");
         HotbarManager.syncFromGame();
 
+        // ✅ Update page input field if GUI is open
+        if (mc.screen instanceof HotbarGuiScreen gui) {
+            gui.updatePageInput();
+        }
+
         if (mc.player != null) {
             mc.player.playSound(
                     pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
@@ -126,7 +130,6 @@ public class ClientEvents {
 
         event.setCanceled(true);
     }
-
 
 
     @SubscribeEvent
@@ -145,7 +148,7 @@ public class ClientEvents {
 
         long window = mc.getWindow().getWindow();
 
-        // Modifier state detection
+        // Modifier detection
         boolean ctrlNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) ||
                 InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean shiftNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) ||
@@ -170,11 +173,10 @@ public class ClientEvents {
         boolean ctrlActive = ctrlNow;
 
         boolean[] held = {
-                // Only trigger hotbar if Ctrl is NOT pressed
                 !ctrlActive && GLFW.glfwGetKey(window, KeyBindings.DECREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
                 !ctrlActive && GLFW.glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
-                KeyBindings.DECREASE_PAGE.isDown(), // Ctrl+-
-                KeyBindings.INCREASE_PAGE.isDown(), // Ctrl+=
+                KeyBindings.DECREASE_PAGE.isDown(),
+                KeyBindings.INCREASE_PAGE.isDown(),
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS && inGui,
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS && inGui,
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS && inGui,
@@ -183,10 +185,7 @@ public class ClientEvents {
 
         for (int i = 0; i < held.length; i++) {
             if (held[i]) {
-                if (skipUntilReleased[i]) {
-                    // Don't trigger until the key is physically released after modifier change
-                    continue;
-                }
+                if (skipUntilReleased[i]) continue;
                 if (!keyHeld[i]) {
                     keyHeld[i] = true;
                     triggerKey(i);
@@ -201,17 +200,29 @@ public class ClientEvents {
                 }
             } else {
                 keyHeld[i] = false;
-                skipUntilReleased[i] = false; // Ready for next press
+                skipUntilReleased[i] = false;
             }
         }
-        // Track the currently selected slot in the real inventory
+
+        // Track currently selected slot
         HotbarManager.setSlot(mc.player.getInventory().selected);
+
+        // 🔁 Check screen change and sync
+        Screen current = mc.screen;
+        if (lastScreen != current) {
+            if (
+                    lastScreen instanceof InventoryScreen || lastScreen instanceof HotbarGuiScreen ||
+                            current instanceof HotbarGuiScreen
+            ) {
+                HotbarManager.syncFromGame();
+            }
+            lastScreen = current;
+        }
 
     }
 
     private static void triggerKey(int index) {
         Minecraft mc = Minecraft.getInstance();
-
         boolean playedSound = false;
         boolean pageChanged = false;
 
@@ -236,7 +247,11 @@ public class ClientEvents {
             }
         }
 
-        // 🔊 Play feedback sound
+        // ✅ Update page input field if GUI is open and page changed
+        if (pageChanged && mc.screen instanceof HotbarGuiScreen gui) {
+            gui.updatePageInput();
+        }
+
         if (mc.player != null && (playedSound || pageChanged)) {
             mc.player.playSound(
                     pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
@@ -245,6 +260,5 @@ public class ClientEvents {
             );
         }
     }
-
 
 }
