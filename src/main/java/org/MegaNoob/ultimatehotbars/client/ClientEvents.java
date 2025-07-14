@@ -6,7 +6,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
@@ -31,6 +31,9 @@ public class ClientEvents {
     private static final boolean[] skipUntilReleased = new boolean[8];
 
     private static Screen lastScreen = null;
+
+    private static long lastSyncCheck = 0;
+    private static final ItemStack[] lastKnownHotbar = new ItemStack[9];
 
     @SubscribeEvent
     public static void onScreenKey(ScreenEvent.KeyPressed.Post event) {
@@ -115,7 +118,6 @@ public class ClientEvents {
         HotbarManager.setHotbar(hotbar, "scroll wheel");
         HotbarManager.syncFromGame();
 
-        // ✅ Update page input field if GUI is open
         if (mc.screen instanceof HotbarGuiScreen gui) {
             gui.updatePageInput();
         }
@@ -130,7 +132,6 @@ public class ClientEvents {
 
         event.setCanceled(true);
     }
-
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -148,7 +149,6 @@ public class ClientEvents {
 
         long window = mc.getWindow().getWindow();
 
-        // Modifier detection
         boolean ctrlNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) ||
                 InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
         boolean shiftNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) ||
@@ -170,11 +170,11 @@ public class ClientEvents {
         boolean inGui = mc.screen instanceof HotbarGuiScreen || mc.screen instanceof AbstractContainerScreen;
         long now = System.currentTimeMillis();
 
-        boolean ctrlActive = ctrlNow;
+       // boolean ctrlActive = ctrlNow;
 
         boolean[] held = {
-                !ctrlActive && GLFW.glfwGetKey(window, KeyBindings.DECREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
-                !ctrlActive && GLFW.glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
+                !ctrlNow && GLFW.glfwGetKey(window, KeyBindings.DECREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
+                !ctrlNow && GLFW.glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
                 KeyBindings.DECREASE_PAGE.isDown(),
                 KeyBindings.INCREASE_PAGE.isDown(),
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS && inGui,
@@ -204,10 +204,8 @@ public class ClientEvents {
             }
         }
 
-        // Track currently selected slot
         HotbarManager.setSlot(mc.player.getInventory().selected);
 
-        // 🔁 Check screen change and sync
         Screen current = mc.screen;
         if (lastScreen != current) {
             if (
@@ -219,7 +217,30 @@ public class ClientEvents {
             lastScreen = current;
         }
 
+        // ✅ Safely detect inventory changes when HUD is open
+        if (mc.screen == null && mc.player != null) {
+            if (now - lastSyncCheck > 1000) {
+                lastSyncCheck = now;
+                boolean changed = false;
+                for (int i = 0; i < 9; i++) {
+                    ItemStack currentStack = mc.player.getInventory().getItem(i);
+                    ItemStack cachedStack = (lastKnownHotbar[i] != null) ? lastKnownHotbar[i] : ItemStack.EMPTY;
+
+                    if (!ItemStack.matches(currentStack, cachedStack)) {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (changed) {
+                    HotbarManager.syncFromGame();
+                    for (int i = 0; i < 9; i++) {
+                        lastKnownHotbar[i] = mc.player.getInventory().getItem(i).copy();
+                    }
+                }
+            }
+        }
     }
+
 
     private static void triggerKey(int index) {
         Minecraft mc = Minecraft.getInstance();
@@ -247,7 +268,6 @@ public class ClientEvents {
             }
         }
 
-        // ✅ Update page input field if GUI is open and page changed
         if (pageChanged && mc.screen instanceof HotbarGuiScreen gui) {
             gui.updatePageInput();
         }
@@ -260,5 +280,4 @@ public class ClientEvents {
             );
         }
     }
-
 }

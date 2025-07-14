@@ -8,7 +8,6 @@ import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 
-
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
     public static final String MODID = "ultimatehotbars";
@@ -23,18 +22,11 @@ public class ultimatehotbars {
         IEventBus modBus = context.getModEventBus();
         modBus.addListener(this::onClientSetup);
 
-       MinecraftForge.EVENT_BUS.register(new ClientEvents());
-        // Force KeyBindings class to load
-       // Class<?> ignored = org.MegaNoob.ultimatehotbars.client.KeyBindings.class;
-        // Save the hotbar when Minecraft is closing
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            HotbarManager.syncFromGame();
-        }));
+        MinecraftForge.EVENT_BUS.register(new ClientEvents());
+
     }
 
     private void onClientSetup(final FMLClientSetupEvent event) {
         HotbarManager.loadHotbars();  // OK to keep, loads the saved data early
-      //  MinecraftForge.EVENT_BUS.register(new ClientEvents());
     }
-
 }
