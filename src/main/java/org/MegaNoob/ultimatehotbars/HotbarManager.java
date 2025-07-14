@@ -20,6 +20,13 @@ public class HotbarManager {
     private static int currentHotbar = 0;
     private static int currentSlot = 0;
 
+    // Debug tracking
+    public static String lastHotbarSource = "";
+    public static int lastHotbarSet = -1;
+    public static int lastSavedHotbar = -1;
+    public static int lastSavedPage = -1;
+    public static int lastSavedSlot = -1;
+
     private static final File SAVE_FILE =
             FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars_hotbars.dat").toFile();
 
@@ -45,9 +52,16 @@ public class HotbarManager {
         syncToGame();
     }
 
-    /** Sets the current hotbar index on this page (with wrap-around) and applies it. */
+    /** Overload: Sets the current hotbar index with no source tag. */
     public static void setHotbar(int hb) {
+        setHotbar(hb, "unknown");
+    }
+
+    /** Sets the current hotbar index with source tag tracking, and applies it. */
+    public static void setHotbar(int hb, String sourceTag) {
         currentHotbar = ((hb % HOTBARS_PER_PAGE) + HOTBARS_PER_PAGE) % HOTBARS_PER_PAGE;
+        lastHotbarSet = currentHotbar;
+        lastHotbarSource = sourceTag;
         syncToGame();
     }
 
@@ -83,17 +97,15 @@ public class HotbarManager {
         }
 
         // ── NEW: also sync to server so it places the correct blocks
-        // Build an array of the 9 stacks
         ItemStack[] stacks = new ItemStack[Hotbar.SLOT_COUNT];
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             stacks[i] = vb.getSlot(i).copy();
         }
-        // Send!
+
         PacketHandler.CHANNEL.sendToServer(
                 new SyncHotbarPacket(getPage(), getHotbar(), stacks)
         );
     }
-
 
     /** Reads from the player's in-game hotbar slots into the virtual hotbar and saves. */
     public static void syncFromGame() {
@@ -122,6 +134,11 @@ public class HotbarManager {
                     pages.get(page).set(hbNum, Hotbar.deserializeNBT(htag));
                 }
             }
+
+            // 🔽 Load last known page/hotbar/slot AFTER restoring hotbars
+            HotbarState.loadState();
+            net.minecraft.client.Minecraft.getInstance().player.getInventory().selected = currentSlot;
+
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -140,6 +157,14 @@ public class HotbarManager {
             }
             root.put("HotbarsMap", map);
             net.minecraft.nbt.NbtIo.write(root, SAVE_FILE);
+
+            // 🔽 Save current page/hotbar/slot after hotbars are saved
+            lastSavedPage = getPage();
+            lastSavedHotbar = getHotbar();
+            lastSavedSlot = getSlot();
+
+            HotbarState.saveState(getPage(), getHotbar(), getSlot());
+
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -165,7 +190,6 @@ public class HotbarManager {
      * @return exactly the HOTBARS_PER_PAGE hotbars on the currently-selected page.
      */
     public static List<Hotbar> getCurrentPageHotbars() {
-        // Return a copy so GUI modifications can’t poke your master list
         return new ArrayList<>(pages.get(currentPage));
     }
 }

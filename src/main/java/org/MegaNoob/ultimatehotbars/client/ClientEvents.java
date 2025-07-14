@@ -72,10 +72,14 @@ public class ClientEvents {
 
         if (KeyBindings.OPEN_GUI.isActiveAndMatches(key)) {
             if (!guiJustClosed) {
-                mc.setScreen(new HotbarGuiScreen());
+                HotbarManager.syncFromGame();
+                Minecraft.getInstance().tell(() -> {
+                    mc.setScreen(new HotbarGuiScreen());
+                });
             }
         }
     }
+
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -152,29 +156,30 @@ public class ClientEvents {
                 skipUntilReleased[i] = false; // Ready for next press
             }
         }
+        // Track the currently selected slot in the real inventory
+        HotbarManager.setSlot(mc.player.getInventory().selected);
+
     }
 
     private static void triggerKey(int index) {
-        HotbarManager.syncFromGame();
         Minecraft mc = Minecraft.getInstance();
 
         switch (index) {
-            case 0, 6 -> HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
-            case 1, 7 -> HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
+            case 0, 6 -> {
+                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
+                HotbarManager.syncFromGame(); // ✅ after set
+            }
+            case 1, 7 -> {
+                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
+                HotbarManager.syncFromGame(); // ✅ after set
+            }
             case 2, 4 -> {
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
-                updatePageInputIfOpen(mc);
             }
             case 3, 5 -> {
                 HotbarManager.setPage(HotbarManager.getPage() + 1);
-                updatePageInputIfOpen(mc);
             }
         }
     }
 
-    private static void updatePageInputIfOpen(Minecraft mc) {
-        if (mc.screen instanceof HotbarGuiScreen gui) {
-            gui.updatePageInput();
-        }
-    }
 }

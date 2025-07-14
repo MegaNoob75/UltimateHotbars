@@ -14,10 +14,7 @@ import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import org.lwjgl.glfw.GLFW;
-import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
-import net.minecraftforge.client.event.ScreenEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.List;
 
@@ -105,38 +102,15 @@ public class HotbarGuiScreen extends Screen {
             }
             case 2 -> {
                 HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
+                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "handleArrowKey(↑)");
             }
             case 3 -> {
                 HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
+                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "handleArrowKey(↓)");
             }
         }
     }
 
-
-
-    private void moveCursorLeft() {
-        HotbarManager.syncFromGame();
-        HotbarManager.setPage(HotbarManager.getPage() - 1);
-        updatePageInput();
-    }
-
-    private void moveCursorRight() {
-        HotbarManager.syncFromGame();
-        HotbarManager.setPage(HotbarManager.getPage() + 1);
-        updatePageInput();
-    }
-
-    private void moveCursorUp() {
-        HotbarManager.syncFromGame();
-        HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
-    }
-
-    private void moveCursorDown() {
-        HotbarManager.syncFromGame();
-        HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
-    }
 
     public void updatePageInput() {
         String expected = String.valueOf(HotbarManager.getPage() + 1);
@@ -251,7 +225,7 @@ public class HotbarGuiScreen extends Screen {
                 int row = (int)((mouseY - startY) / rowHeight);
                 row = Math.max(0, Math.min(rows - 1, row));
                 HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(row);
+                HotbarManager.setHotbar(row, "mouseClick(RIGHT)");
                 HotbarManager.syncToGame();
                 Minecraft.getInstance().setScreen(
                         new InventoryScreen(Minecraft.getInstance().player)
@@ -268,9 +242,10 @@ public class HotbarGuiScreen extends Screen {
                 row = Math.max(0, Math.min(rows - 1, row));
                 slot = Math.max(0, Math.min(Hotbar.SLOT_COUNT - 1, slot));
 
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(row);
+                // ✅ FIXED ORDER: set first, then sync
+                HotbarManager.setHotbar(row, "mouseClick(LEFT)");
                 HotbarManager.setSlot(slot);
+                HotbarManager.syncFromGame(); // now saves correct state
 
                 Minecraft mc = Minecraft.getInstance();
                 mc.player.getInventory().selected = slot;
@@ -283,6 +258,7 @@ public class HotbarGuiScreen extends Screen {
                 return true;
             }
         }
+
 
         return super.mouseClicked(mouseX, mouseY, button);
     }
