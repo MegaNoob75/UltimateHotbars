@@ -80,6 +80,40 @@ public class ClientEvents {
         }
     }
 
+    @SubscribeEvent
+    public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
+        if (!(event.getScreen() instanceof HotbarGuiScreen)) return;
+
+        double delta = event.getScrollDelta(); // positive = scroll up, negative = scroll down
+        if (delta == 0) return;
+
+        int hotbar = HotbarManager.getHotbar();
+        int page = HotbarManager.getPage();
+
+        if (delta < 0) {
+            // Scroll down → next hotbar
+            hotbar++;
+            if (hotbar >= HotbarManager.HOTBARS_PER_PAGE) {
+                hotbar = 0;
+                page = (page + 1) % HotbarManager.PAGES;
+                HotbarManager.setPage(page);
+            }
+        } else {
+            // Scroll up → previous hotbar
+            hotbar--;
+            if (hotbar < 0) {
+                page = (page - 1 + HotbarManager.PAGES) % HotbarManager.PAGES;
+                hotbar = HotbarManager.HOTBARS_PER_PAGE - 1;
+                HotbarManager.setPage(page);
+            }
+        }
+
+        HotbarManager.setHotbar(hotbar, "scroll wheel");
+        HotbarManager.syncFromGame();
+
+        event.setCanceled(true);
+    }
+
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
