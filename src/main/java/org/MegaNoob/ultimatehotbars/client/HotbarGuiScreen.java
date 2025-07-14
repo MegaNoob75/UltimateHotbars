@@ -105,15 +105,38 @@ public class HotbarGuiScreen extends Screen {
             }
             case 2 -> {
                 HotbarManager.syncFromGame();
-                HotbarManager.cycleHotbar(-1);
+                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
             }
             case 3 -> {
                 HotbarManager.syncFromGame();
-                HotbarManager.cycleHotbar(+1);
+                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
             }
         }
     }
 
+
+
+    private void moveCursorLeft() {
+        HotbarManager.syncFromGame();
+        HotbarManager.setPage(HotbarManager.getPage() - 1);
+        updatePageInput();
+    }
+
+    private void moveCursorRight() {
+        HotbarManager.syncFromGame();
+        HotbarManager.setPage(HotbarManager.getPage() + 1);
+        updatePageInput();
+    }
+
+    private void moveCursorUp() {
+        HotbarManager.syncFromGame();
+        HotbarManager.setHotbar(HotbarManager.getHotbar() - 1);
+    }
+
+    private void moveCursorDown() {
+        HotbarManager.syncFromGame();
+        HotbarManager.setHotbar(HotbarManager.getHotbar() + 1);
+    }
 
     public void updatePageInput() {
         String expected = String.valueOf(HotbarManager.getPage() + 1);

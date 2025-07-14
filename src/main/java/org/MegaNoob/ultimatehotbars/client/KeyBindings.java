@@ -11,21 +11,16 @@ import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraftforge.api.distmarker.Dist;
 import org.lwjgl.glfw.GLFW;
 
-@Mod.EventBusSubscriber(
-        modid = ultimatehotbars.MODID,
-        value = Dist.CLIENT,
-        bus = Mod.EventBusSubscriber.Bus.MOD
-)
+@Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
+
 public class KeyBindings {
 
     public static final KeyMapping DECREASE_HOTBAR =
-            new KeyMapping("key.ultimatehotbars.dec_hotbar", KeyConflictContext.IN_GAME,
-                    KeyModifier.NONE, InputConstants.Type.KEYSYM,
+            new KeyMapping("key.ultimatehotbars.dec_hotbar", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_MINUS, "key.categories.ultimatehotbars");
 
     public static final KeyMapping INCREASE_HOTBAR =
-            new KeyMapping("key.ultimatehotbars.inc_hotbar", KeyConflictContext.IN_GAME,
-                    KeyModifier.NONE, InputConstants.Type.KEYSYM,
+            new KeyMapping("key.ultimatehotbars.inc_hotbar", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_EQUAL, "key.categories.ultimatehotbars");
 
     public static final KeyMapping DECREASE_PAGE =
@@ -39,10 +34,10 @@ public class KeyBindings {
                     GLFW.GLFW_KEY_EQUAL, "key.categories.ultimatehotbars");
 
     public static final KeyMapping OPEN_GUI =
-            new KeyMapping("key.ultimatehotbars.open_gui", KeyConflictContext.IN_GAME,
-                    KeyModifier.NONE, InputConstants.Type.KEYSYM,
+            new KeyMapping("key.ultimatehotbars.open_gui", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_H, "key.categories.ultimatehotbars");
 
+    // Arrow keys: available in any screen, but filtered manually
     public static final KeyMapping ARROW_LEFT =
             new KeyMapping("key.ultimatehotbars.arrow_left", KeyConflictContext.IN_GAME,
                     KeyModifier.NONE, InputConstants.Type.KEYSYM,
@@ -64,8 +59,7 @@ public class KeyBindings {
                     GLFW.GLFW_KEY_DOWN, "key.categories.ultimatehotbars");
 
     public static final KeyMapping CLEAR_HOTBAR =
-            new KeyMapping("key.ultimatehotbars.clear_hotbar", KeyConflictContext.IN_GAME,
-                    KeyModifier.NONE, InputConstants.Type.KEYSYM,
+            new KeyMapping("key.ultimatehotbars.clear_hotbar", InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_DELETE, "key.categories.ultimatehotbars");
 
     @SubscribeEvent
