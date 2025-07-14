@@ -13,6 +13,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import org.lwjgl.glfw.GLFW;
 
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
@@ -84,35 +86,47 @@ public class ClientEvents {
     public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
         if (!(event.getScreen() instanceof HotbarGuiScreen)) return;
 
-        double delta = event.getScrollDelta(); // positive = scroll up, negative = scroll down
+        double delta = event.getScrollDelta();
         if (delta == 0) return;
 
+        Minecraft mc = Minecraft.getInstance();
         int hotbar = HotbarManager.getHotbar();
         int page = HotbarManager.getPage();
 
+        boolean pageChanged = false;
+
         if (delta < 0) {
-            // Scroll down → next hotbar
             hotbar++;
             if (hotbar >= HotbarManager.HOTBARS_PER_PAGE) {
                 hotbar = 0;
                 page = (page + 1) % HotbarManager.PAGES;
                 HotbarManager.setPage(page);
+                pageChanged = true;
             }
         } else {
-            // Scroll up → previous hotbar
             hotbar--;
             if (hotbar < 0) {
                 page = (page - 1 + HotbarManager.PAGES) % HotbarManager.PAGES;
                 hotbar = HotbarManager.HOTBARS_PER_PAGE - 1;
                 HotbarManager.setPage(page);
+                pageChanged = true;
             }
         }
 
         HotbarManager.setHotbar(hotbar, "scroll wheel");
         HotbarManager.syncFromGame();
 
+        if (mc.player != null) {
+            mc.player.playSound(
+                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                    0.7f,
+                    pageChanged ? 0.9f : 1.4f
+            );
+        }
+
         event.setCanceled(true);
     }
+
 
 
     @SubscribeEvent
@@ -198,22 +212,39 @@ public class ClientEvents {
     private static void triggerKey(int index) {
         Minecraft mc = Minecraft.getInstance();
 
+        boolean playedSound = false;
+        boolean pageChanged = false;
+
         switch (index) {
             case 0, 6 -> {
                 HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
-                HotbarManager.syncFromGame(); // ✅ after set
+                HotbarManager.syncFromGame();
+                playedSound = true;
             }
             case 1, 7 -> {
                 HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
-                HotbarManager.syncFromGame(); // ✅ after set
+                HotbarManager.syncFromGame();
+                playedSound = true;
             }
             case 2, 4 -> {
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
+                pageChanged = true;
             }
             case 3, 5 -> {
                 HotbarManager.setPage(HotbarManager.getPage() + 1);
+                pageChanged = true;
             }
         }
+
+        // 🔊 Play feedback sound
+        if (mc.player != null && (playedSound || pageChanged)) {
+            mc.player.playSound(
+                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                    0.7f,
+                    pageChanged ? 0.9f : 1.4f
+            );
+        }
     }
+
 
 }
