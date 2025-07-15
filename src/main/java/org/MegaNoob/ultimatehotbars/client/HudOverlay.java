@@ -10,12 +10,12 @@ import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-
 
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class HudOverlay {
@@ -33,29 +33,42 @@ public class HudOverlay {
     public static void renderHotbarLabel(RenderGuiOverlayEvent.Post event) {
         if (!event.getOverlay().id().equals(VanillaGuiOverlay.HOTBAR.id())) return;
 
+        if (!Config.showHudLabel) return;
+
         Minecraft mc = Minecraft.getInstance();
         GuiGraphics graphics = event.getGuiGraphics();
         Font font = mc.font;
 
-        // ✅ Restore the original centered label above the hotbar
         int sw = event.getWindow().getGuiScaledWidth();
         int sh = event.getWindow().getGuiScaledHeight();
         String label = "Page: " + (HotbarManager.getPage() + 1)
                 + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
-        int centerX = (sw - font.width(label)) / 2;
-        int centerY = sh - 35;
-        graphics.drawString(font, label, centerX, centerY, 0xFFFFFF, true);
 
-        // ✅ Optional debug overlay
-        if (ultimatehotbars.DEBUG_MODE) {
+        int textWidth = font.width(label);
+        int centerX = (sw - textWidth) / 2;
+        int centerY = sh - 35;
+
+        if (Config.showHudLabelBackground) {
+            float[] bg = Config.hudLabelBackgroundColor;
+            int bgColor = ((int)(bg[3] * 255) << 24) | ((int)(bg[0] * 255) << 16)
+                    | ((int)(bg[1] * 255) << 8) | (int)(bg[2] * 255);
+            graphics.fill(centerX - 4, centerY - 2, centerX + textWidth + 4, centerY + 10, bgColor);
+        }
+
+        float[] textColor = Config.hudLabelTextColor;
+        int color = ((int)(textColor[3] * 255) << 24) | ((int)(textColor[0] * 255) << 16)
+                | ((int)(textColor[1] * 255) << 8) | (int)(textColor[2] * 255);
+
+        graphics.drawString(font, label, centerX, centerY, color, true);
+
+        if (Config.showDebugOverlay) {
             drawDebugOverlay(graphics, font, mc, "[DEBUG HUD - HOTBAR CONTEXT]");
         }
     }
 
-
     @SubscribeEvent
     public static void renderGuiLabel(RenderGuiEvent.Post event) {
-        if (!ultimatehotbars.DEBUG_MODE) return;
+        if (!Config.showDebugOverlay) return;
 
         Minecraft mc = Minecraft.getInstance();
         GuiGraphics graphics = event.getGuiGraphics();
@@ -81,7 +94,6 @@ public class HudOverlay {
         GuiGraphics graphics = event.getGuiGraphics();
         graphics.drawString(font, label, labelX, labelY, 0xFFFFFF, true);
     }
-
 
     private static void drawDebugOverlay(GuiGraphics graphics, Font font, Minecraft mc, String contextLabel) {
         int x = 4;

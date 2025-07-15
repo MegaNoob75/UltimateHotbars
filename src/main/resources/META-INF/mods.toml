@@ -1,18 +1,16 @@
-# src/main/resources/META-INF/mods.toml
-modLoader    = "javafml"           # mandatory
-loaderVersion= "[47,)"             # Forge 47+
-license      = "MIT"               # your chosen license
+modLoader    = "javafml"
+loaderVersion= "[47,)"
+license      = "MIT"
 
 [[mods]]
-modId        = "ultimatehotbars"   # your lowercase ID
-version      = "1.0"               # whatever your mod_version is
+modId        = "ultimatehotbars"
+version      = "${mod_version}" # ← now automatically filled
 displayName  = "UltimateHotbars"
 description  = '''
   A Forge mod that gives you virtually unlimited hotbars!
 '''
-authors      = ["Ross Morgenstern"]    # replace with your actual name(s)
+authors      = ["Ross Morgenstern"]
 
-# Dependencies on Minecraft and Forge — no self-dependency!
 [[dependencies.ultimatehotbars]]
 modId       = "minecraft"
 mandatory   = true

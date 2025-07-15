@@ -1,13 +1,16 @@
 package org.MegaNoob.ultimatehotbars;
 
 import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 import org.MegaNoob.ultimatehotbars.client.KeyBindings;
+import org.MegaNoob.ultimatehotbars.Config; // ← Added import
 
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
@@ -29,10 +32,13 @@ public class ultimatehotbars {
 
         // Register client event handlers (ticks, GUI, etc.)
         MinecraftForge.EVENT_BUS.register(new ClientEvents());
+
+        // Register client-side config spec (fixed Config.SPEC)
+        ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
     }
 
     private void onClientSetup(final FMLClientSetupEvent event) {
         // Load saved hotbar data at startup
-        HotbarManager.loadHotbars();
+        // HotbarManager.loadHotbars();
     }
 }

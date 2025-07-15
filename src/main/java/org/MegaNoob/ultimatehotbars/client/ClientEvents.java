@@ -8,11 +8,13 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import org.lwjgl.glfw.GLFW;
@@ -34,6 +36,12 @@ public class ClientEvents {
 
     private static long lastSyncCheck = 0;
     private static final ItemStack[] lastKnownHotbar = new ItemStack[9];
+
+    @SubscribeEvent
+    public static void onPlayerLogin(ClientPlayerNetworkEvent.LoggingIn event) {
+        HotbarManager.loadHotbars(); // Safe: player is now initialized
+    }
+
 
     @SubscribeEvent
     public static void onScreenKey(ScreenEvent.KeyPressed.Post event) {
@@ -122,12 +130,14 @@ public class ClientEvents {
             gui.updatePageInput();
         }
 
-        if (mc.player != null) {
-            mc.player.playSound(
-                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
-                    0.7f,
-                    pageChanged ? 0.9f : 1.4f
-            );
+        if (Config.enableSounds()) {
+            if (mc.player != null) {
+                mc.player.playSound(
+                        pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                        0.7f,
+                        pageChanged ? 0.9f : 1.4f
+                );
+            }
         }
 
         event.setCanceled(true);
@@ -277,12 +287,14 @@ public class ClientEvents {
             gui.updatePageInput();
         }
 
-        if (mc.player != null && (playedSound || pageChanged)) {
-            mc.player.playSound(
-                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
-                    0.7f,
-                    pageChanged ? 0.9f : 1.4f
-            );
+        if (Config.enableSounds()) {
+            if (mc.player != null && (playedSound || pageChanged)) {
+                mc.player.playSound(
+                        pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                        0.7f,
+                        pageChanged ? 0.9f : 1.4f
+                );
+            }
         }
     }
 

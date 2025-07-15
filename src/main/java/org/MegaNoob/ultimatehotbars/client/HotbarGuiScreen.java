@@ -9,10 +9,13 @@ import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+import org.MegaNoob.ultimatehotbars.client.HotbarConfigScreen;
+
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.KeyMapping;
 
@@ -50,6 +53,12 @@ public class HotbarGuiScreen extends Screen {
             } catch (NumberFormatException ignored) {}
         });
         addRenderableWidget(pageInput);
+        this.addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
+                net.minecraft.network.chat.Component.literal("Config"),
+                btn -> this.minecraft.setScreen(new HotbarConfigScreen(this)
+                )
+        ).pos(10, this.height - 30).size(80, 20).build());
+
     }
 
     @Override
@@ -182,10 +191,15 @@ public class HotbarGuiScreen extends Screen {
             graphics.blit(HOTBAR_TEX, baseX - border, y - 3, 0, 0, bgWidth, bgHeight);
 
             if (row == selHb) {
+                float[] c = Config.highlightColor();
+                int color = ((int)(c[3] * 255) << 24) | ((int)(c[0] * 255) << 16)
+                        | ((int)(c[1] * 255) << 8) | (int)(c[2] * 255);
+
                 graphics.fill(baseX - border, y - 3,
                         baseX - border + bgWidth, y - 3 + bgHeight,
-                        0x80FFFFFF);
+                        color);
             }
+
 
             String lbl = String.valueOf(row + 1);
             graphics.drawString(this.font, lbl,
