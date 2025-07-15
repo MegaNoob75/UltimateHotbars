@@ -7,6 +7,7 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
+import org.MegaNoob.ultimatehotbars.client.KeyBindings;
 
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
@@ -19,14 +20,19 @@ public class ultimatehotbars {
         // Register our sync packet
         PacketHandler.register();
 
+        // Register mod event listeners
         IEventBus modBus = context.getModEventBus();
         modBus.addListener(this::onClientSetup);
 
-        MinecraftForge.EVENT_BUS.register(new ClientEvents());
+        // ✅ Register key bindings during RegisterKeyMappingsEvent
+        modBus.addListener(KeyBindings::register);
 
+        // Register client event handlers (ticks, GUI, etc.)
+        MinecraftForge.EVENT_BUS.register(new ClientEvents());
     }
 
     private void onClientSetup(final FMLClientSetupEvent event) {
-        HotbarManager.loadHotbars();  // OK to keep, loads the saved data early
+        // Load saved hotbar data at startup
+        HotbarManager.loadHotbars();
     }
 }
