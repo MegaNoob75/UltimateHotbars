@@ -177,10 +177,15 @@ public class ClientEvents {
                 !ctrlNow && GLFW.glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
                 KeyBindings.DECREASE_PAGE.isDown(),
                 KeyBindings.INCREASE_PAGE.isDown(),
-                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS && inGui,
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS && inGui,
-                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS && inGui,
-                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS && inGui
+                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS && inGui,
+                (mc.screen instanceof HotbarGuiScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS) ||
+                        (mc.screen instanceof AbstractContainerScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS),
+
+                (mc.screen instanceof HotbarGuiScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS) ||
+                        (mc.screen instanceof AbstractContainerScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS),
+
+
         };
 
         for (int i = 0; i < held.length; i++) {
@@ -258,11 +263,11 @@ public class ClientEvents {
                 HotbarManager.syncFromGame();
                 playedSound = true;
             }
-            case 2, 4 -> {
+            case 2, 5 -> { // LEFT → decrease page
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
                 pageChanged = true;
             }
-            case 3, 5 -> {
+            case 3, 4 -> { // RIGHT → increase page
                 HotbarManager.setPage(HotbarManager.getPage() + 1);
                 pageChanged = true;
             }
@@ -280,4 +285,7 @@ public class ClientEvents {
             );
         }
     }
+
+
+
 }

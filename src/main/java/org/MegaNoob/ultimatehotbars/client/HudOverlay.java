@@ -12,6 +12,10 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
+import net.minecraftforge.client.event.ScreenEvent;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+
 
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public class HudOverlay {
@@ -59,6 +63,25 @@ public class HudOverlay {
 
         drawDebugOverlay(graphics, font, mc, "[DEBUG HUD - GUI CONTEXT]");
     }
+
+    @SubscribeEvent
+    public static void renderGuiSideLabel(ScreenEvent.Render.Post event) {
+        Screen screen = event.getScreen();
+        if (!(screen instanceof AbstractContainerScreen<?> container)) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        Font font = mc.font;
+
+        String label = "Page: " + (HotbarManager.getPage() + 1)
+                + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
+
+        int labelX = container.getGuiLeft() - 10 - font.width(label);
+        int labelY = container.getGuiTop() + container.getYSize() - 24;
+
+        GuiGraphics graphics = event.getGuiGraphics();
+        graphics.drawString(font, label, labelX, labelY, 0xFFFFFF, true);
+    }
+
 
     private static void drawDebugOverlay(GuiGraphics graphics, Font font, Minecraft mc, String contextLabel) {
         int x = 4;
