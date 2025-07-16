@@ -143,10 +143,23 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (pageInput.isFocused() &&
-                (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT ||
-                        keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
-            return false;
+        boolean ctrl = hasControlDown();
+
+        boolean isHotbarKey =
+                keyCode == GLFW.GLFW_KEY_LEFT ||
+                        keyCode == GLFW.GLFW_KEY_RIGHT ||
+                        keyCode == GLFW.GLFW_KEY_UP ||
+                        keyCode == GLFW.GLFW_KEY_DOWN ||
+                        keyCode == GLFW.GLFW_KEY_MINUS ||
+                        keyCode == GLFW.GLFW_KEY_EQUAL ||
+                        (ctrl && (keyCode == GLFW.GLFW_KEY_MINUS || keyCode == GLFW.GLFW_KEY_EQUAL));
+
+        // Block the textbox from gaining or keeping focus on hotbar keys
+        if (isHotbarKey) {
+            if (pageInput.isFocused()) {
+                pageInput.setFocused(false); // unfocus if it had it
+            }
+            return true; // consume the key so it doesn't pass to EditBox
         }
 
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
@@ -155,9 +168,10 @@ public class HotbarGuiScreen extends Screen {
             return true;
         }
 
-        // ✅ DO NOT handle OPEN_GUI here — it's now centralized in ClientEvents
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
+
+
 
 
 

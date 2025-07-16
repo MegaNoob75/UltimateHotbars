@@ -13,7 +13,6 @@ import net.minecraft.client.gui.narration.NarrationElementOutput;
 import org.MegaNoob.ultimatehotbars.Config;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 
@@ -25,8 +24,7 @@ public class HotbarConfigScreen extends Screen {
     private final Screen parent;
     private final List<AbstractWidget> generalWidgets = new ArrayList<>();
     private final List<AbstractWidget> colorWidgets   = new ArrayList<>();
-    private static final ResourceLocation HOTBAR_SLOT_TEX =
-            new ResourceLocation(ultimatehotbars.MODID, "textures/gui/hotbar_slot.png");
+
     private enum Tab { GENERAL, COLORS }
     private Tab currentTab = Tab.GENERAL;
 
@@ -138,9 +136,6 @@ public class HotbarConfigScreen extends Screen {
         );
     }
 
-
-
-
     private void addColorSliders(List<AbstractWidget> list,
                                  String groupTitle,
                                  float[] rgba,
@@ -221,52 +216,50 @@ public class HotbarConfigScreen extends Screen {
                     int slotSize = 18, spacing = 2;
                     int baseX = getX(), baseY = getY();
 
-                    // draw slot backgrounds
+                    // 1) translucent black background for the whole preview
+                    g.fill(baseX, baseY, baseX + getWidth(), baseY + getHeight(), 0x88000000);
+
+                    // 2) highlight bar behind the slots
+                    int colorInt = ((int)(rgba[3] * 255) << 24)
+                            | ((int)(rgba[0] * 255) << 16)
+                            | ((int)(rgba[1] * 255) <<  8)
+                            |  (int)(rgba[2] * 255);
+                    g.fill(baseX, baseY, baseX + getWidth(), baseY + getHeight(), colorInt);
+
+                    // 3) thin grey borders around each slot
+                    int border = 0xFFAAAAAA;
                     for (int i = 0; i < 3; i++) {
                         int sx = baseX + i * (slotSize + spacing);
-                        g.fill(sx, baseY, sx + slotSize, baseY + slotSize, 0xFF555555);
+                        int sy = baseY;
+                        // top
+                        g.fill(sx, sy, sx + slotSize, sy + 1, border);
+                        // bottom
+                        g.fill(sx, sy + slotSize - 1, sx + slotSize, sy + slotSize, border);
+                        // left
+                        g.fill(sx, sy, sx + 1, sy + slotSize, border);
+                        // right
+                        g.fill(sx + slotSize - 1, sy, sx + slotSize, sy + slotSize, border);
                     }
 
-                    // draw the highlight bar behind them
-                    int colorInt = ((int)(rgba[3]*255)<<24)
-                            | ((int)(rgba[0]*255)<<16)
-                            | ((int)(rgba[1]*255)<<8)
-                            |  (int)(rgba[2]*255);
-                    g.fill(baseX, baseY, baseX + previewW, baseY + previewH, colorInt);
-
-                    // draw mock items on top
+                    // 4) mock items on top
                     Minecraft mc = Minecraft.getInstance();
                     ItemStack[] examples = {
                             new ItemStack(Items.DIAMOND),
                             new ItemStack(Items.IRON_INGOT),
                             new ItemStack(Items.GOLD_INGOT)
                     };
-                    // draw three textured slots
                     for (int i = 0; i < 3; i++) {
                         int sx = baseX + i * (slotSize + spacing);
                         int sy = baseY;
-                        // blit exactly the same 18×18 region as your real hotbar GUI
-                        // (u0, v0) are the texture‐coords you used in HotbarGuiScreen
-                        int u0 = 0, v0 = 0;
-                        g.blit(HOTBAR_SLOT_TEX, sx, sy,
-                                u0, v0,       // change these to your actual UV offsets
-                                slotSize, slotSize);
+                        int ix = sx + (slotSize - 16) / 2;
+                        int iy = sy + (slotSize - 16) / 2;
+                        g.renderItem(examples[i], ix, iy);
+                        g.renderItemDecorations(mc.font, examples[i], ix, iy, null);
                     }
-
-// then draw the highlight bar *behind* the slots
-                    g.fill(baseX, baseY, baseX + previewW, baseY + previewH, colorInt);
-
-// then render items as before
-                    for (int i = 0; i < 3; i++) {
-                        int sx = baseX + i * (slotSize + spacing);
-                        int sy = baseY;
-                        g.renderItem(examples[i], sx + (slotSize-16)/2, sy + (slotSize-16)/2);
-                        g.renderItemDecorations(font, examples[i],
-                                sx + (slotSize-16)/2, sy + (slotSize-16)/2, null);
-                    }
-
                 }
-                @Override protected void updateWidgetNarration(NarrationElementOutput n) {}
+
+                @Override
+                protected void updateWidgetNarration(NarrationElementOutput n) { }
             };
             list.add(preview);
 
@@ -292,33 +285,41 @@ public class HotbarConfigScreen extends Screen {
             list.add(preview);
 
         } else if ("HUD Label Text".equals(groupTitle)) {
+            // preview the HUD‐label text on top of your HUD‐label background
             float[] bgArr = Config.hudLabelBackgroundColor();
             AbstractWidget preview = new AbstractWidget(previewX, previewY, previewW, previewH, Component.empty()) {
                 @Override
                 protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
-                    int bgColor = ((int)(bgArr[3]*255)<<24)
-                            | ((int)(bgArr[0]*255)<<16)
-                            | ((int)(bgArr[1]*255)<<8)
-                            |  (int)(bgArr[2]*255);
-                    int txtColor = ((int)(rgba[3]*255)<<24)
-                            | ((int)(rgba[0]*255)<<16)
-                            | ((int)(rgba[1]*255)<<8)
-                            |  (int)(rgba[2]*255);
-                    g.fill(getX(), getY(), getX()+getWidth(), getY()+getHeight(), bgColor);
+                    // fill with the background‐color
+                    int bgColor = ((int)(bgArr[3] * 255) << 24)
+                            | ((int)(bgArr[0] * 255) << 16)
+                            | ((int)(bgArr[1] * 255) <<  8)
+                            |  (int)(bgArr[2] * 255);
+                    g.fill(getX(), getY(),
+                            getX() + getWidth(), getY() + getHeight(),
+                            bgColor);
+
+                    // draw the letter(s) in your text‐color
+                    int txtColor = ((int)(rgba[3] * 255) << 24)
+                            | ((int)(rgba[0] * 255) << 16)
+                            | ((int)(rgba[1] * 255) <<  8)
+                            |  (int)(rgba[2] * 255);
                     g.drawCenteredString(Minecraft.getInstance().font,
-                            "Pg 1", getX() + previewW/2, getY() + (previewH - 8)/2, txtColor);
+                            "Pg 1",
+                            getX() + previewW/2,
+                            getY() + (previewH - 8)/2,
+                            txtColor);
                 }
-                @Override protected void updateWidgetNarration(NarrationElementOutput n) {}
+                @Override
+                protected void updateWidgetNarration(NarrationElementOutput n) { }
             };
             list.add(preview);
         }
 
+
         // 4) record end-of-group Y
         lastColorY = y;
     }
-
-
-
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
@@ -330,10 +331,6 @@ public class HotbarConfigScreen extends Screen {
         return super.mouseScrolled(mx, my, delta);
     }
 
-
-
-
-
     // 3) render(...)
     @Override
     public void render(GuiGraphics gui, int mx, int my, float pt) {
@@ -343,8 +340,6 @@ public class HotbarConfigScreen extends Screen {
         gui.drawCenteredString(font, title, width/2, titleY, 0xFFFFFF);
         super.render(gui, mx, my, pt);
     }
-
-
 
     @Override
     public void onClose() {
