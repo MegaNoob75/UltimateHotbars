@@ -331,7 +331,7 @@ public class HotbarConfigScreen extends Screen {
         return super.mouseScrolled(mx, my, delta);
     }
 
-    // 3) render(...)
+    // 3) render(....)
     @Override
     public void render(GuiGraphics gui, int mx, int my, float pt) {
         renderBackground(gui);
