@@ -43,14 +43,6 @@ UltimateHotbars replaces Minecraft’s vanilla hotbar system: **100 pages** of *
 
 * Customize keybindings in Minecraft’s Controls menu.
 
-## Contributing
-
-1. Fork the repo.
-2. Create a branch: `git checkout -b feature/YourFeature`.
-3. Make changes and commit: `git commit -m "Add YourFeature"`.
-4. Push: `git push origin feature/YourFeature`.
-5. Open a Pull Request.
-
 ## License
 
 This project is licensed under the MIT License—see [LICENSE](LICENSE) for details.
