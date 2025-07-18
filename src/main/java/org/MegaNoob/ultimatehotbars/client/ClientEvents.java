@@ -101,47 +101,46 @@ public class ClientEvents {
 
         Minecraft mc = Minecraft.getInstance();
         int hotbar = HotbarManager.getHotbar();
-        int page = HotbarManager.getPage();
-
+        int page   = HotbarManager.getPage();
         boolean pageChanged = false;
 
+        // 1) save current edits
+        HotbarManager.syncFromGame();
+
+        // 2) adjust indices
         if (delta < 0) {
             hotbar++;
             if (hotbar >= HotbarManager.HOTBARS_PER_PAGE) {
                 hotbar = 0;
-                page = (page + 1) % HotbarManager.PAGES;
-                HotbarManager.setPage(page);
+                page  = (page + 1) % HotbarManager.PAGES;
                 pageChanged = true;
             }
         } else {
             hotbar--;
             if (hotbar < 0) {
-                page = (page - 1 + HotbarManager.PAGES) % HotbarManager.PAGES;
                 hotbar = HotbarManager.HOTBARS_PER_PAGE - 1;
-                HotbarManager.setPage(page);
+                page  = (page - 1 + HotbarManager.PAGES) % HotbarManager.PAGES;
                 pageChanged = true;
             }
         }
 
+        // 3) apply new page/hotbar
+        HotbarManager.setPage(hotbar >= 0 && hotbar < HotbarManager.HOTBARS_PER_PAGE ? page : page); // only if pageChanged
         HotbarManager.setHotbar(hotbar, "scroll wheel");
-        HotbarManager.syncFromGame();
 
-        if (mc.screen instanceof HotbarGuiScreen gui) {
-            gui.updatePageInput();
-        }
-
-        if (Config.enableSounds()) {
-            if (mc.player != null) {
-                mc.player.playSound(
-                        pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
-                        0.7f,
-                        pageChanged ? 0.9f : 1.4f
-                );
-            }
+        // 4) update GUI & sound
+        if (mc.screen instanceof HotbarGuiScreen gui) gui.updatePageInput();
+        if (Config.enableSounds() && mc.player != null) {
+            mc.player.playSound(
+                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                    0.7f,
+                    pageChanged ? 0.9f : 1.4f
+            );
         }
 
         event.setCanceled(true);
     }
+
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
@@ -265,9 +264,7 @@ public class ClientEvents {
         switch (index) {
             // ← Hotbar left
             case 0, 6 -> {
-                // 1) save whatever you just edited in slots 0–8
                 HotbarManager.syncFromGame();
-                // 2) switch the hotbar index, which internally calls syncToGame()
                 HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
                 playedSound = true;
             }
@@ -307,6 +304,7 @@ public class ClientEvents {
             );
         }
     }
+
 
 
 
