@@ -260,43 +260,54 @@ public class ClientEvents {
     private static void triggerKey(int index) {
         Minecraft mc = Minecraft.getInstance();
         boolean playedSound = false;
-        boolean pageChanged = false;
+        boolean pageChanged  = false;
 
         switch (index) {
+            // ← Hotbar left
             case 0, 6 -> {
+                // 1) save whatever you just edited in slots 0–8
+                HotbarManager.syncFromGame();
+                // 2) switch the hotbar index, which internally calls syncToGame()
                 HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
-                HotbarManager.syncFromGame();
                 playedSound = true;
             }
+            // → Hotbar right
             case 1, 7 -> {
-                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
                 HotbarManager.syncFromGame();
+                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
                 playedSound = true;
             }
-            case 2, 5 -> { // LEFT → decrease page
+            // ← Page left
+            case 2, 5 -> {
+                HotbarManager.syncFromGame();
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
                 pageChanged = true;
             }
-            case 3, 4 -> { // RIGHT → increase page
+            // → Page right
+            case 3, 4 -> {
+                HotbarManager.syncFromGame();
                 HotbarManager.setPage(HotbarManager.getPage() + 1);
                 pageChanged = true;
             }
         }
 
+        // if we switched a page inside the GUI, update the text field
         if (pageChanged && mc.screen instanceof HotbarGuiScreen gui) {
             gui.updatePageInput();
         }
 
-        if (Config.enableSounds()) {
-            if (mc.player != null && (playedSound || pageChanged)) {
-                mc.player.playSound(
-                        pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
-                        0.7f,
-                        pageChanged ? 0.9f : 1.4f
-                );
-            }
+        // play click or drum
+        if (Config.enableSounds() && mc.player != null && (playedSound || pageChanged)) {
+            mc.player.playSound(
+                    pageChanged
+                            ? SoundEvents.NOTE_BLOCK_BASEDRUM.get()
+                            : SoundEvents.UI_BUTTON_CLICK.get(),
+                    0.7f,
+                    pageChanged ? 0.9f : 1.4f
+            );
         }
     }
+
 
 
 
