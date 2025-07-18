@@ -293,11 +293,10 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public void removed() {
-        // before vanilla unloads the screen, stash any final edits
+        // stash any final edits before the screen goes away
         HotbarManager.syncFromGame();
         super.removed();
     }
-
 
     @Override
     public boolean shouldCloseOnEsc() {

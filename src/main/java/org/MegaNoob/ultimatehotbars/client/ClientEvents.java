@@ -95,7 +95,6 @@ public class ClientEvents {
     @SubscribeEvent
     public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
         if (!(event.getScreen() instanceof HotbarGuiScreen)) return;
-
         double delta = event.getScrollDelta();
         if (delta == 0) return;
 
@@ -124,15 +123,19 @@ public class ClientEvents {
             }
         }
 
-        // 3) apply new page/hotbar
-        HotbarManager.setPage(hotbar >= 0 && hotbar < HotbarManager.HOTBARS_PER_PAGE ? page : page); // only if pageChanged
+        // 3) apply new page *only if* it changed, then always apply new hotbar
+        if (pageChanged) {
+            HotbarManager.setPage(page);
+        }
         HotbarManager.setHotbar(hotbar, "scroll wheel");
 
         // 4) update GUI & sound
         if (mc.screen instanceof HotbarGuiScreen gui) gui.updatePageInput();
         if (Config.enableSounds() && mc.player != null) {
             mc.player.playSound(
-                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get() : SoundEvents.UI_BUTTON_CLICK.get(),
+                    pageChanged
+                            ? SoundEvents.NOTE_BLOCK_BASEDRUM.get()
+                            : SoundEvents.UI_BUTTON_CLICK.get(),
                     0.7f,
                     pageChanged ? 0.9f : 1.4f
             );
@@ -140,6 +143,7 @@ public class ClientEvents {
 
         event.setCanceled(true);
     }
+
 
 
     @SubscribeEvent
