@@ -37,7 +37,7 @@ public class HotbarGuiScreen extends Screen {
     private double pressX, pressY;
     private boolean dragging = false;
     private ItemStack draggedStack = ItemStack.EMPTY;
-    private int sourceRow, sourceSlotIdx;
+    private int sourcePage, sourceRow, sourceSlotIdx;
     private Hotbar sourceHotbar;
 
     public HotbarGuiScreen() {
@@ -228,12 +228,12 @@ public class HotbarGuiScreen extends Screen {
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int[] coords = getSlotCoords(mouseX, mouseY);
         if (coords == null) return super.mouseClicked(mouseX, mouseY, button);
-        sourceRow = coords[0];
+        sourcePage    = HotbarManager.getPage();
+        sourceRow     = coords[0];
         sourceSlotIdx = coords[1];
-        sourceHotbar = HotbarManager.getCurrentPageHotbars().get(sourceRow);
+        sourceHotbar  = HotbarManager.getCurrentPageHotbars().get(sourceRow);
         potentialDrag = true;
-        pressX = mouseX;
-        pressY = mouseY;
+        pressX = mouseX; pressY = mouseY;
         return true;
     }
 
@@ -255,15 +255,24 @@ public class HotbarGuiScreen extends Screen {
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (dragging) {
             int[] coords = getSlotCoords(mouseX, mouseY);
-            if (coords != null) {
-                Hotbar target = HotbarManager.getCurrentPageHotbars().get(coords[0]);
-                int targetSlot = coords[1];
-                ItemStack existing = target.getSlot(targetSlot);
-                target.setSlot(targetSlot, draggedStack);
-                sourceHotbar.setSlot(sourceSlotIdx, existing);
-            } else {
+            int dropPage = HotbarManager.getPage();
+            // Dropped onto original slot+page
+            if (coords != null && dropPage == sourcePage
+                    && coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
+            // Swap into another slot/page
+            else if (coords != null) {
+                Hotbar target = HotbarManager.getCurrentPageHotbars().get(coords[0]);
+                ItemStack existing = target.getSlot(coords[1]);
+                target.setSlot(coords[1], draggedStack);
+                sourceHotbar.setSlot(sourceSlotIdx, existing);
+            }
+            // Dropped outside
+            else {
+                sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
+            }
+
             HotbarManager.saveHotbars();
             HotbarManager.syncToGame();
             dragging = false;
@@ -342,6 +351,13 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public void removed() {
+        // if we were mid-drag, put it back
+        if (dragging) {
+            sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
+            dragging = false;
+            potentialDrag = false;
+            draggedStack = ItemStack.EMPTY;
+        }
         HotbarManager.saveHotbars();
         HotbarManager.syncToGame();
         super.removed();
