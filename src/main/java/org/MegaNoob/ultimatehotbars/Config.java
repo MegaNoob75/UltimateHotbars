@@ -1,16 +1,10 @@
 package org.MegaNoob.ultimatehotbars;
 
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.Item;
 import net.minecraftforge.common.ForgeConfigSpec;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.config.ModConfigEvent.Loading;
-import net.minecraftforge.registries.ForgeRegistries;
-
 import java.util.List;
-import java.util.Objects;
-import java.util.stream.Collectors;
 
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class Config {

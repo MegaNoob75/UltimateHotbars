@@ -36,6 +36,10 @@ public class HotbarGuiScreen extends Screen {
     private int sourcePage, sourceRow, sourceSlotIdx;
     private Hotbar sourceHotbar;
 
+    // Delete-zone dimensions (will be computed each frame)
+    private int deleteX, deleteY, deleteW = 50, deleteH;
+
+
     public HotbarGuiScreen() {
         super(Component.literal("Virtual Hotbars"));
     }
@@ -170,6 +174,7 @@ public class HotbarGuiScreen extends Screen {
         this.renderBackground(graphics);
         pageInput.render(graphics, mouseX, mouseY, partialTicks);
 
+        // ——— Compute hotbar layout —————————————
         int topY    = pageInput.getY() + pageInput.getHeight() + 6;
         int bottomY = this.height - 30;
         int rows     = ultimatehotbars.HOTBARS_PER_PAGE;
@@ -228,43 +233,78 @@ public class HotbarGuiScreen extends Screen {
             }
         }
 
-        // ─── Pulsating hover-slot border ────────────────────────────
+        // ——— Delete box —————————————————————————
+        // position & size
+        int deleteW = 50;
+        int deleteH = totalH;
+        int deleteX = baseX + bgWidth + 5;
+        int deleteY = startY;
+
+        // pulsating alpha
+        long now = System.currentTimeMillis();
+        float t = (now % 1000L) / 1000f;
+        float pulse = (float)(Math.sin(2 * Math.PI * t) * 0.5 + 0.5);
+        int alpha = (int)(pulse * 255);
+        int redColor = (alpha << 24) | (0xFF << 16);
+
+        // semi-transparent background
+        graphics.fill(deleteX, deleteY, deleteX + deleteW, deleteY + deleteH, 0x88000000);
+        // 2px red border
+        for (int i = 0; i < 2; i++) {
+            // top
+            graphics.fill(deleteX + i, deleteY + i,
+                    deleteX + deleteW - i, deleteY + i + 1,
+                    redColor);
+            // bottom
+            graphics.fill(deleteX + i, deleteY + deleteH - i - 1,
+                    deleteX + deleteW - i, deleteY + deleteH - i,
+                    redColor);
+            // left
+            graphics.fill(deleteX + i, deleteY + i,
+                    deleteX + i + 1, deleteY + deleteH - i,
+                    redColor);
+            // right
+            graphics.fill(deleteX + deleteW - i - 1, deleteY + i,
+                    deleteX + deleteW - i, deleteY + deleteH - i,
+                    redColor);
+        }
+        // “Delete” label centered
+        graphics.drawCenteredString(this.font, "Delete",
+                deleteX + deleteW/2,
+                deleteY + (deleteH - this.font.lineHeight)/2,
+                0xFFFFFFFF
+        );
+
+        // ——— Hover-slot border (existing) —————————
         int[] hover = getSlotCoords(mouseX, mouseY);
         if (hover != null) {
             int hoverRow  = hover[0];
             int hoverSlot = hover[1];
             int hy = startY + hoverRow * rowHeight - 3;
             int hx = baseX + hoverSlot * cellW;
-
-            // config RGBA + pulse
             float[] arr = Config.hoverBorderColor();
-            long now = System.currentTimeMillis();
-            float t = (now % 1000L) / 1000f;                // 1s cycle
-            float pulse = (float)(Math.sin(2 * Math.PI * t)*0.5 + 0.5);
-            int alpha = (int)(arr[3] * pulse * 255);
-            int r     = (int)(arr[0] * 255);
-            int g     = (int)(arr[1] * 255);
-            int b     = (int)(arr[2] * 255);
-            int color = (alpha<<24)|(r<<16)|(g<<8)|b;
-
+            float pulse2 = (float)(Math.sin(2 * Math.PI * t)*0.5 + 0.5);
+            int alpha2 = (int)(arr[3] * pulse2 * 255);
+            int cr = (int)(arr[0] * 255);
+            int cg = (int)(arr[1] * 255);
+            int cb = (int)(arr[2] * 255);
+            int color2 = (alpha2<<24)|(cr<<16)|(cg<<8)|cb;
             int thickness = 1;
-            // top
-            graphics.fill(hx, hy, hx + cellW,           hy + thickness,       color);
-            // bottom
-            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,           hy + cellH,           color);
-            // left
-            graphics.fill(hx, hy,                       hx + thickness,       hy + cellH,           color);
-            // right
-            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,           hy + cellH,           color);
+            graphics.fill(hx, hy, hx + cellW,           hy + thickness, color2);
+            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,           hy + cellH, color2);
+            graphics.fill(hx, hy,                       hx + thickness,       hy + cellH, color2);
+            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,           hy + cellH, color2);
         }
 
         super.render(graphics, mouseX, mouseY, partialTicks);
 
+        // dragged item
         if (dragging && !draggedStack.isEmpty()) {
             graphics.renderItem(draggedStack, mouseX, mouseY);
             graphics.renderItemDecorations(this.font, draggedStack, mouseX, mouseY);
         }
     }
+
 
 
     @Override
@@ -297,35 +337,58 @@ public class HotbarGuiScreen extends Screen {
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (dragging) {
+            // —— Compute delete‐box bounds (must match your render logic) ——
+            int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+            int rowHeight = 22;
+            int totalH  = rows * rowHeight;
+            int topY    = pageInput.getY() + pageInput.getHeight() + 6;
+            int startY  = topY + ((this.height - 30 - topY) - totalH) / 2;
+            int midX    = this.width / 2;
+            int bgWidth = 182;
+            int baseX   = midX - bgWidth / 2 + 1;
+            int deleteW = 50;
+            int deleteX = baseX + bgWidth + 5;
+            int deleteY = startY;
+            int deleteH = totalH;
+
+            // If dropped into Delete box → discard
+            if (mouseX >= deleteX && mouseX < deleteX + deleteW
+                    && mouseY >= deleteY && mouseY < deleteY + deleteH) {
+                // Just throw it away
+                dragging      = false;
+                potentialDrag = false;
+                draggedStack  = ItemStack.EMPTY;
+                HotbarManager.saveHotbars();
+                return true;
+            }
+
+            // —— Otherwise fall back to original slot‐swap logic ——
             int[] coords = getSlotCoords(mouseX, mouseY);
             int dropPage = HotbarManager.getPage();
-            // Dropped onto original slot+page
             if (coords != null && dropPage == sourcePage
                     && coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-            }
-            // Swap into another slot/page
-            else if (coords != null) {
+            } else if (coords != null) {
                 Hotbar target = HotbarManager.getCurrentPageHotbars().get(coords[0]);
                 ItemStack existing = target.getSlot(coords[1]);
                 target.setSlot(coords[1], draggedStack);
                 sourceHotbar.setSlot(sourceSlotIdx, existing);
-            }
-            // Dropped outside
-            else {
+            } else {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
 
             HotbarManager.saveHotbars();
             HotbarManager.syncToGame();
-            dragging = false;
+            dragging      = false;
             potentialDrag = false;
-            draggedStack = ItemStack.EMPTY;
+            draggedStack  = ItemStack.EMPTY;
             return true;
         }
+
         potentialDrag = false;
         return handleClick(mouseX, mouseY, button);
     }
+
 
     private boolean handleClick(double mouseX, double mouseY, int button) {
         int topY = pageInput.getY() + pageInput.getHeight() + 6;
