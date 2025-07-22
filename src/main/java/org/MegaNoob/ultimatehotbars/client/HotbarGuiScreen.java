@@ -14,12 +14,8 @@ import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
-import org.MegaNoob.ultimatehotbars.client.HotbarConfigScreen;
-
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.KeyMapping;
-import org.MegaNoob.ultimatehotbars.client.KeyBindings;
-
 import java.util.List;
 
 public class HotbarGuiScreen extends Screen {
