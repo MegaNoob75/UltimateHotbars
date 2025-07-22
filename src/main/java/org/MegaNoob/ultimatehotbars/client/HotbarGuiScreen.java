@@ -16,6 +16,9 @@ import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import org.lwjgl.glfw.GLFW;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.client.Minecraft;
 import java.util.List;
 
 public class HotbarGuiScreen extends Screen {
@@ -164,6 +167,11 @@ public class HotbarGuiScreen extends Screen {
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             HotbarManager.getCurrentHotbar().clear();
             HotbarManager.syncToGame();
+            // play clear sound
+            Minecraft.getInstance().player.playSound(
+                    SoundEvents.ITEM_BREAK,
+                    1.0F, 1.0F
+            );
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
@@ -175,19 +183,19 @@ public class HotbarGuiScreen extends Screen {
         pageInput.render(graphics, mouseX, mouseY, partialTicks);
 
         // ——— Compute hotbar layout —————————————
-        int topY    = pageInput.getY() + pageInput.getHeight() + 6;
-        int bottomY = this.height - 30;
-        int rows     = ultimatehotbars.HOTBARS_PER_PAGE;
-        int rowHeight= 22;
-        int totalH   = rows * rowHeight;
-        int startY   = topY + ((bottomY - topY) - totalH) / 2;
-        int midX     = this.width / 2;
-        int bgWidth  = 182;
-        int bgHeight = 22;
-        int border   = 1;
-        int cellW    = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
-        int cellH    = bgHeight;
-        int baseX    = midX - bgWidth / 2 + border;
+        int topY     = pageInput.getY() + pageInput.getHeight() + 6;
+        int bottomY  = this.height - 30;
+        int rows      = ultimatehotbars.HOTBARS_PER_PAGE;
+        int rowHeight = 22;
+        int totalH    = rows * rowHeight;
+        int startY    = topY + ((bottomY - topY) - totalH) / 2;
+        int midX      = this.width / 2;
+        int bgWidth   = 182;
+        int bgHeight  = 22;
+        int border    = 1;
+        int cellW     = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
+        int cellH     = bgHeight;
+        int baseX     = midX - bgWidth / 2 + border;
 
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int selHb = HotbarManager.getHotbar();
@@ -234,21 +242,21 @@ public class HotbarGuiScreen extends Screen {
         }
 
         // ——— Delete box —————————————————————————
-        // position & size
         int deleteW = 50;
         int deleteH = totalH;
-        int deleteX = baseX + bgWidth + 5;
-        int deleteY = startY;
+        int deleteX = 10;                                        // align with Config button x
+        int deleteY = (this.height - 30) - deleteH - 5;          // 5px above Config button
 
         // pulsating alpha
-        long now = System.currentTimeMillis();
-        float t = (now % 1000L) / 1000f;
-        float pulse = (float)(Math.sin(2 * Math.PI * t) * 0.5 + 0.5);
-        int alpha = (int)(pulse * 255);
-        int redColor = (alpha << 24) | (0xFF << 16);
+        long now2    = System.currentTimeMillis();
+        float t2     = (now2 % 1000L) / 1000f;
+        float pulse2 = (float)(Math.sin(2 * Math.PI * t2) * 0.5 + 0.5);
+        int alpha2   = (int)(pulse2 * 255);
+        int redColor = (alpha2 << 24) | (0xFF << 16);
 
         // semi-transparent background
         graphics.fill(deleteX, deleteY, deleteX + deleteW, deleteY + deleteH, 0x88000000);
+
         // 2px red border
         for (int i = 0; i < 2; i++) {
             // top
@@ -268,8 +276,11 @@ public class HotbarGuiScreen extends Screen {
                     deleteX + deleteW - i, deleteY + deleteH - i,
                     redColor);
         }
-        // “Delete” label centered
-        graphics.drawCenteredString(this.font, "Delete",
+
+        // "Drop To Delete Item" label centered
+        graphics.drawCenteredString(
+                this.font,
+                "Delete",
                 deleteX + deleteW/2,
                 deleteY + (deleteH - this.font.lineHeight)/2,
                 0xFFFFFFFF
@@ -282,18 +293,19 @@ public class HotbarGuiScreen extends Screen {
             int hoverSlot = hover[1];
             int hy = startY + hoverRow * rowHeight - 3;
             int hx = baseX + hoverSlot * cellW;
+
             float[] arr = Config.hoverBorderColor();
-            float pulse2 = (float)(Math.sin(2 * Math.PI * t)*0.5 + 0.5);
-            int alpha2 = (int)(arr[3] * pulse2 * 255);
+            float pulse3 = (float)(Math.sin(2 * Math.PI * t2)*0.5 + 0.5);
+            int alpha3 = (int)(arr[3] * pulse3 * 255);
             int cr = (int)(arr[0] * 255);
             int cg = (int)(arr[1] * 255);
             int cb = (int)(arr[2] * 255);
-            int color2 = (alpha2<<24)|(cr<<16)|(cg<<8)|cb;
+            int color3 = (alpha3<<24)|(cr<<16)|(cg<<8)|cb;
             int thickness = 1;
-            graphics.fill(hx, hy, hx + cellW,           hy + thickness, color2);
-            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,           hy + cellH, color2);
-            graphics.fill(hx, hy,                       hx + thickness,       hy + cellH, color2);
-            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,           hy + cellH, color2);
+            graphics.fill(hx, hy, hx + cellW,           hy + thickness, color3);
+            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,      hy + cellH,     color3);
+            graphics.fill(hx, hy,                       hx + thickness,  hy + cellH,     color3);
+            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,      hy + cellH,     color3);
         }
 
         super.render(graphics, mouseX, mouseY, partialTicks);
@@ -307,6 +319,7 @@ public class HotbarGuiScreen extends Screen {
 
 
 
+
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
         int[] coords = getSlotCoords(mouseX, mouseY);
@@ -317,6 +330,12 @@ public class HotbarGuiScreen extends Screen {
         sourceHotbar  = HotbarManager.getCurrentPageHotbars().get(sourceRow);
         potentialDrag = true;
         pressX = mouseX; pressY = mouseY;
+
+        // Play pickup sound
+        Minecraft.getInstance().player.playSound(
+                SoundEvents.ITEM_PICKUP,
+                1.0F, 1.0F
+        );
         return true;
     }
 
@@ -337,24 +356,22 @@ public class HotbarGuiScreen extends Screen {
     @Override
     public boolean mouseReleased(double mouseX, double mouseY, int button) {
         if (dragging) {
-            // —— Compute delete‐box bounds (must match your render logic) ——
-            int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+            // —— Compute delete‐box bounds (left side, above Config button) ——
+            int rows      = ultimatehotbars.HOTBARS_PER_PAGE;
             int rowHeight = 22;
-            int totalH  = rows * rowHeight;
-            int topY    = pageInput.getY() + pageInput.getHeight() + 6;
-            int startY  = topY + ((this.height - 30 - topY) - totalH) / 2;
-            int midX    = this.width / 2;
-            int bgWidth = 182;
-            int baseX   = midX - bgWidth / 2 + 1;
-            int deleteW = 50;
-            int deleteX = baseX + bgWidth + 5;
-            int deleteY = startY;
-            int deleteH = totalH;
+            int totalH    = rows * rowHeight;
+            int deleteW   = 50;
+            int deleteH   = totalH;
+            int deleteX   = 10;
+            int deleteY   = (this.height - 30) - deleteH - 5;
 
             // If dropped into Delete box → discard
             if (mouseX >= deleteX && mouseX < deleteX + deleteW
                     && mouseY >= deleteY && mouseY < deleteY + deleteH) {
-                // Just throw it away
+                Minecraft.getInstance().player.playSound(
+                        SoundEvents.ITEM_BREAK,
+                        1.0F, 1.0F
+                );
                 dragging      = false;
                 potentialDrag = false;
                 draggedStack  = ItemStack.EMPTY;
@@ -365,6 +382,7 @@ public class HotbarGuiScreen extends Screen {
             // —— Otherwise fall back to original slot‐swap logic ——
             int[] coords = getSlotCoords(mouseX, mouseY);
             int dropPage = HotbarManager.getPage();
+
             if (coords != null && dropPage == sourcePage
                     && coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
@@ -379,6 +397,16 @@ public class HotbarGuiScreen extends Screen {
 
             HotbarManager.saveHotbars();
             HotbarManager.syncToGame();
+
+            // play place/swap sound
+            Minecraft.getInstance().player.playSound(
+                    SoundEvents.ITEM_PICKUP,
+                    1.0F,
+                    0.8F
+            );
+
+
+
             dragging      = false;
             potentialDrag = false;
             draggedStack  = ItemStack.EMPTY;
@@ -388,6 +416,7 @@ public class HotbarGuiScreen extends Screen {
         potentialDrag = false;
         return handleClick(mouseX, mouseY, button);
     }
+
 
 
     private boolean handleClick(double mouseX, double mouseY, int button) {
