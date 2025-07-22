@@ -169,56 +169,103 @@ public class HotbarGuiScreen extends Screen {
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
         this.renderBackground(graphics);
         pageInput.render(graphics, mouseX, mouseY, partialTicks);
-        int topY = pageInput.getY() + pageInput.getHeight() + 6;
+
+        int topY    = pageInput.getY() + pageInput.getHeight() + 6;
         int bottomY = this.height - 30;
-        int rows = ultimatehotbars.HOTBARS_PER_PAGE;
-        int rowHeight = 22;
-        int totalH = rows * rowHeight;
-        int startY = topY + ((bottomY - topY) - totalH) / 2;
-        int midX = this.width / 2;
-        int bgWidth = 182;
+        int rows     = ultimatehotbars.HOTBARS_PER_PAGE;
+        int rowHeight= 22;
+        int totalH   = rows * rowHeight;
+        int startY   = topY + ((bottomY - topY) - totalH) / 2;
+        int midX     = this.width / 2;
+        int bgWidth  = 182;
         int bgHeight = 22;
-        int border = 1;
-        int cellW = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
-        int cellH = bgHeight;
-        int baseX = midX - bgWidth / 2 + border;
+        int border   = 1;
+        int cellW    = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
+        int cellH    = bgHeight;
+        int baseX    = midX - bgWidth / 2 + border;
+
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int selHb = HotbarManager.getHotbar();
+
+        // draw each row + its items
         for (int row = 0; row < pageHotbars.size(); row++) {
             int y = startY + row * rowHeight;
             Hotbar hb = pageHotbars.get(row);
+
             RenderSystem.setShaderTexture(0, HOTBAR_TEX);
             graphics.blit(HOTBAR_TEX, baseX - border, y - 3, 0, 0, bgWidth, bgHeight);
+
+            // highlight selected hotbar
             if (row == selHb) {
                 float[] c = Config.highlightColor();
-                int color = ((int)(c[3] * 255) << 24) |
-                        ((int)(c[0] * 255) << 16) |
-                        ((int)(c[1] * 255) << 8) |
-                        (int)(c[2] * 255);
-                graphics.fill(baseX - border, y - 3,
+                int color = ((int)(c[3]*255)<<24) |
+                        ((int)(c[0]*255)<<16) |
+                        ((int)(c[1]*255)<< 8) |
+                        (int)(c[2]*255);
+                graphics.fill(
+                        baseX - border, y - 3,
                         baseX - border + bgWidth, y - 3 + bgHeight,
-                        color);
+                        color
+                );
             }
+
+            // row label
             String lbl = String.valueOf(row + 1);
-            graphics.drawString(this.font, lbl,
+            graphics.drawString(
+                    this.font, lbl,
                     baseX - border - 3 - this.font.width(lbl),
-                    y + (rowHeight - this.font.lineHeight) / 2,
-                    0xFFFFFF);
+                    y + (rowHeight - this.font.lineHeight)/2,
+                    0xFFFFFF
+            );
+
             int yOffset = y - 3;
             for (int slot = 0; slot < Hotbar.SLOT_COUNT; slot++) {
                 ItemStack stack = hb.getSlot(slot);
-                int ix = baseX + slot * cellW + (cellW - 16) / 2;
-                int iy = yOffset + (cellH - 16) / 2;
+                int ix = baseX + slot * cellW + (cellW - 16)/2;
+                int iy = yOffset + (cellH - 16)/2;
                 graphics.renderItem(stack, ix, iy);
                 graphics.renderItemDecorations(this.font, stack, ix, iy);
             }
         }
+
+        // ─── Pulsating hover-slot border ────────────────────────────
+        int[] hover = getSlotCoords(mouseX, mouseY);
+        if (hover != null) {
+            int hoverRow  = hover[0];
+            int hoverSlot = hover[1];
+            int hy = startY + hoverRow * rowHeight - 3;
+            int hx = baseX + hoverSlot * cellW;
+
+            // config RGBA + pulse
+            float[] arr = Config.hoverBorderColor();
+            long now = System.currentTimeMillis();
+            float t = (now % 1000L) / 1000f;                // 1s cycle
+            float pulse = (float)(Math.sin(2 * Math.PI * t)*0.5 + 0.5);
+            int alpha = (int)(arr[3] * pulse * 255);
+            int r     = (int)(arr[0] * 255);
+            int g     = (int)(arr[1] * 255);
+            int b     = (int)(arr[2] * 255);
+            int color = (alpha<<24)|(r<<16)|(g<<8)|b;
+
+            int thickness = 1;
+            // top
+            graphics.fill(hx, hy, hx + cellW,           hy + thickness,       color);
+            // bottom
+            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,           hy + cellH,           color);
+            // left
+            graphics.fill(hx, hy,                       hx + thickness,       hy + cellH,           color);
+            // right
+            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,           hy + cellH,           color);
+        }
+
         super.render(graphics, mouseX, mouseY, partialTicks);
+
         if (dragging && !draggedStack.isEmpty()) {
             graphics.renderItem(draggedStack, mouseX, mouseY);
             graphics.renderItemDecorations(this.font, draggedStack, mouseX, mouseY);
         }
     }
+
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {

@@ -37,6 +37,10 @@ public class Config {
     public static final ForgeConfigSpec.ConfigValue<List<? extends Double>> HUD_LABEL_TEXT_COLOR =
             BUILDER.comment("RGBA color for HUD label text").defineList("hudLabelTextColor", List.of(1.0D, 1.0D, 1.0D, 1.0D), obj -> obj instanceof Double);
 
+    // New hover-slot-border color setting (default white)
+    public static final ForgeConfigSpec.ConfigValue<List<? extends Double>> HOVER_BORDER_COLOR =
+            BUILDER.comment("RGBA color for hover-slot border highlight").defineList("hoverBorderColor", List.of(1.0D, 1.0D, 1.0D, 1.0D), obj -> obj instanceof Double);
+
     public static final ForgeConfigSpec SPEC = BUILDER.build();
 
     public static boolean enableSounds = true;
@@ -46,6 +50,8 @@ public class Config {
     public static float[] highlightColor = new float[]{1.0f, 1.0f, 0.0f, 0.8f};
     public static float[] hudLabelBackgroundColor = new float[]{0.0f, 0.0f, 0.0f, 0.5f};
     public static float[] hudLabelTextColor = new float[]{1.0f, 1.0f, 1.0f, 1.0f};
+    // new default hover-border color
+    public static float[] hoverBorderColor = new float[]{1.0f, 1.0f, 1.0f, 1.0f};
 
     @SubscribeEvent
     static void onLoad(final Loading event) {
@@ -56,6 +62,8 @@ public class Config {
         highlightColor = toFloatArray(HIGHLIGHT_COLOR.get());
         hudLabelBackgroundColor = toFloatArray(HUD_LABEL_BG_COLOR.get());
         hudLabelTextColor = toFloatArray(HUD_LABEL_TEXT_COLOR.get());
+        // load new hover-slot-border color
+        hoverBorderColor = toFloatArray(HOVER_BORDER_COLOR.get());
     }
 
     public static boolean enableSounds() {
@@ -86,6 +94,11 @@ public class Config {
         return hudLabelTextColor;
     }
 
+    // new accessor for hover-slot-border
+    public static float[] hoverBorderColor() {
+        return hoverBorderColor;
+    }
+
     private static float[] toFloatArray(List<? extends Double> list) {
         float[] rgba = new float[4];
         for (int i = 0; i < 4 && i < list.size(); i++) {
@@ -98,7 +111,6 @@ public class Config {
         return List.of((double) rgba[0], (double) rgba[1], (double) rgba[2], (double) rgba[3]);
     }
 
-
     public static void resetToDefaults() {
         enableSounds = true;
         showDebugOverlay = false;
@@ -107,13 +119,14 @@ public class Config {
         highlightColor = new float[]{1.0f, 1.0f, 0.0f, 0.8f};
         hudLabelBackgroundColor = new float[]{0.0f, 0.0f, 0.0f, 0.5f};
         hudLabelTextColor = new float[]{1.0f, 1.0f, 1.0f, 1.0f};
+        // reset hover-border color default
+        hoverBorderColor = new float[]{1.0f, 1.0f, 1.0f, 1.0f};
     }
 
     public static void save() {
         // Trigger a config reload and save if needed (placeholder for now)
         // Currently Forge auto-saves config changes, so this can be a no-op
     }
-
 
     public static void syncToForgeConfig() {
         ENABLE_SOUNDS.set(enableSounds);
@@ -123,5 +136,7 @@ public class Config {
         HIGHLIGHT_COLOR.set(List.of((double)highlightColor[0], (double)highlightColor[1], (double)highlightColor[2], (double)highlightColor[3]));
         HUD_LABEL_BG_COLOR.set(List.of((double)hudLabelBackgroundColor[0], (double)hudLabelBackgroundColor[1], (double)hudLabelBackgroundColor[2], (double)hudLabelBackgroundColor[3]));
         HUD_LABEL_TEXT_COLOR.set(List.of((double)hudLabelTextColor[0], (double)hudLabelTextColor[1], (double)hudLabelTextColor[2], (double)hudLabelTextColor[3]));
+        // sync new hover-border color
+        HOVER_BORDER_COLOR.set(List.of((double)hoverBorderColor[0], (double)hoverBorderColor[1], (double)hoverBorderColor[2], (double)hoverBorderColor[3]));
     }
 }
