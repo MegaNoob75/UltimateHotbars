@@ -44,6 +44,7 @@ public class SyncHotbarPacket {
         ctx.enqueueWork(() -> {
             ServerPlayer player = ctx.getSender();
             if (player == null) return;
+
             Inventory inv = player.getInventory();
             // Overwrite the server’s hotbar slots (0–8) with the virtual stacks
             for (int i = 0; i < msg.stacks.length; i++) {

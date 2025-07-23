@@ -12,7 +12,8 @@ public class HotbarState {
 
     public static void saveState(int page, int hotbar, int slot) {
         try {
-            System.out.println("[HotbarState] Saving state: page=" + page + ", hotbar=" + hotbar + ", slot=" + slot);
+            System.out.println("[HotbarState] Saving state: page=" + page +
+                    ", hotbar=" + hotbar + ", slot=" + slot);
             CompoundTag tag = new CompoundTag();
             tag.putInt("page", page);
             tag.putInt("hotbar", hotbar);
@@ -28,16 +29,26 @@ public class HotbarState {
         try {
             CompoundTag tag = NbtIo.read(STATE_FILE);
             if (tag != null) {
-                if (tag.contains("page")) HotbarManager.setPage(tag.getInt("page"));
-                HotbarManager.setHotbar(tag.getInt("hotbar"), "HotbarState.loadState");
-                if (tag.contains("slot")) HotbarManager.setSlot(tag.getInt("slot"));
+                // Clamp saved page to valid range
+                if (tag.contains("page")) {
+                    int savedPage = tag.getInt("page");
+                    int maxPages = HotbarManager.getPageCount();
+                    if (savedPage >= 0 && savedPage < maxPages) {
+                        HotbarManager.setPage(savedPage);
+                    }
+                }
 
-                // 🔽 Force reapply hotbar visually after all values are set
+                // Hotbar index (wrapped internally) and slot
+                HotbarManager.setHotbar(tag.getInt("hotbar"), "HotbarState.loadState");
+                if (tag.contains("slot")) {
+                    HotbarManager.setSlot(tag.getInt("slot"));
+                }
+
+                // Force reapply to client & server
                 HotbarManager.syncToGame();
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
-
 }

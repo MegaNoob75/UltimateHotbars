@@ -10,13 +10,13 @@ import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 import org.MegaNoob.ultimatehotbars.client.KeyBindings;
-import org.MegaNoob.ultimatehotbars.Config; // ← Added import
+import org.MegaNoob.ultimatehotbars.Config;
+import org.MegaNoob.ultimatehotbars.HotbarManager;
 
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
     public static final String MODID = "ultimatehotbars";
     public static final int HOTBARS_PER_PAGE = 10;  // how many hotbars per page
-    public static final int MAX_PAGES        = 100; // total pages available
     public static boolean DEBUG_MODE = false;
 
     public ultimatehotbars(final FMLJavaModLoadingContext context) {
@@ -27,18 +27,18 @@ public class ultimatehotbars {
         IEventBus modBus = context.getModEventBus();
         modBus.addListener(this::onClientSetup);
 
-        // ✅ Register key bindings during RegisterKeyMappingsEvent
+        // Register key bindings during RegisterKeyMappingsEvent
         modBus.addListener(KeyBindings::register);
 
         // Register client event handlers (ticks, GUI, etc.)
         MinecraftForge.EVENT_BUS.register(new ClientEvents());
 
-        // Register client-side config spec (fixed Config.SPEC)
+        // Register client-side config spec
         ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, Config.SPEC);
     }
 
     private void onClientSetup(final FMLClientSetupEvent event) {
-        // Load saved hotbar data at startup
-        // HotbarManager.loadHotbars();
+        // Load saved hotbar pages & state
+        HotbarManager.loadHotbars();
     }
 }

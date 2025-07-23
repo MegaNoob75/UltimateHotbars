@@ -1,78 +1,131 @@
 package org.MegaNoob.ultimatehotbars.client;
 
-import net.minecraft.client.Minecraft;
 import com.mojang.blaze3d.systems.RenderSystem;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.gui.components.ObjectSelectionList;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.util.Mth;
 import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
+import org.MegaNoob.ultimatehotbars.client.KeyBindings;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import org.lwjgl.glfw.GLFW;
-import net.minecraft.client.KeyMapping;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
-import net.minecraft.client.Minecraft;
+import net.minecraft.world.item.ItemStack;
+
 import java.util.List;
 
 public class HotbarGuiScreen extends Screen {
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
+
     private EditBox pageInput;
-    private static final long INITIAL_DELAY_MS = 300;
+    private PageListWidget pageListWidget;
+
+    private static final long INITIAL_DELAY_MS  = 300;
     private static final long REPEAT_INTERVAL_MS = 100;
-    private final boolean[] keyHeld = new boolean[4];
-    private final long[] keyPressStart = new long[4];
-    private final long[] lastRepeat = new long[4];
+    private final boolean[] keyHeld       = new boolean[4];
+    private final long[]    keyPressStart = new long[4];
+    private final long[]    lastRepeat    = new long[4];
 
-    // Drag & drop state
     private static final double DRAG_THRESHOLD = 5.0;
-    private boolean potentialDrag = false;
-    private double pressX, pressY;
-    private boolean dragging = false;
+    private boolean potentialDrag = false, dragging = false;
+    private double  pressX, pressY;
+    private int     sourcePage, sourceRow, sourceSlotIdx;
+    private Hotbar  sourceHotbar;
     private ItemStack draggedStack = ItemStack.EMPTY;
-    private int sourcePage, sourceRow, sourceSlotIdx;
-    private Hotbar sourceHotbar;
-
-    // Delete-zone dimensions (will be computed each frame)
-    private int deleteX, deleteY, deleteW = 50, deleteH;
-
 
     public HotbarGuiScreen() {
         super(Component.literal("Virtual Hotbars"));
+    }
+
+    /** Refreshes the single top-center textbox and page list to match the current page name. */
+    public void updatePageInput() {
+        pageInput.setResponder(null);
+        pageInput.setValue(HotbarManager.getPageNames().get(HotbarManager.getPage()));
+        pageInput.setResponder(this::onPageInputChanged);
+        pageListWidget.updatePages();
+    }
+
+    /** @return true if the page-name text box is currently focused. */
+    public boolean isTextFieldFocused() {
+        return pageInput != null && pageInput.isFocused();
     }
 
     @Override
     protected void init() {
         super.init();
         int midX = this.width / 2;
-        pageInput = new EditBox(this.font, midX - 30, 5, 60, 20,
-                Component.translatable("key.ultimatehotbars.page_input"));
-        pageInput.setValue(String.valueOf(HotbarManager.getPage() + 1));
-        pageInput.setResponder(value -> {
-            try {
-                int p = Integer.parseInt(value) - 1;
-                if (p >= 0 && p < ultimatehotbars.MAX_PAGES) {
-                    HotbarManager.syncFromGame();
-                    HotbarManager.setPage(p);
-                }
-            } catch (NumberFormatException ignored) {}
-        });
+
+        // ─── Single top-center EditBox for renaming pages ─────────
+        int editW = 100;
+        pageInput = new EditBox(this.font, midX - editW/2, 5, editW, 20,
+                Component.literal("Page Name"));
+        pageInput.setValue(HotbarManager.getPageNames().get(HotbarManager.getPage()));
+        pageInput.setResponder(this::onPageInputChanged);
         addRenderableWidget(pageInput);
-        this.addRenderableWidget(net.minecraft.client.gui.components.Button.builder(
-                net.minecraft.network.chat.Component.literal("Config"),
-                btn -> this.minecraft.setScreen(new HotbarConfigScreen(this))
-        ).pos(10, this.height - 30).size(80, 20).build());
+
+        // ─── Config button ───────────────────────────────────────
+        addRenderableWidget(Button.builder(Component.literal("Config"),
+                        btn -> this.minecraft.setScreen(new HotbarConfigScreen(this)))
+                .pos(10, this.height - 30).size(80, 20).build());
+
+        // ─── Compute hotbar & list layout ───────────────────────
+        int topY    = pageInput.getY() + pageInput.getHeight() + 6;
+        int bottomY = this.height - 30;
+        int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+        int rowH    = 22;
+        int totalH  = rows * rowH;
+        int startY  = topY + ((bottomY - topY) - totalH) / 2;
+        int bgW     = 182;
+        int baseX   = midX - bgW / 2;
+
+        // Right-side page list
+        int listX   = baseX + bgW + 10;
+        int listW   = 100;
+        int listTop = startY;
+        int listBot = startY + totalH;
+
+        // ─── PageListWidget ──────────────────────────────────────
+        pageListWidget = new PageListWidget(
+                this.minecraft, listW, this.height, listTop, listBot, 20
+        );
+        pageListWidget.setLeftPos(listX);
+        pageListWidget.updatePages();
+        addWidget(pageListWidget);
+
+        // ─── Add / Remove Page buttons ───────────────────────────
+        int btnY      = startY + totalH + 6;
+        int btnW      = 80, btnH = 20, gap = 10;
+        int totalBtnW = btnW * 2 + gap;
+        int btnX      = midX - totalBtnW/2;
+        addRenderableWidget(Button.builder(Component.literal("+ Page"),
+                        b -> { HotbarManager.addPage(); updatePageInput(); })
+                .pos(btnX, btnY).size(btnW, btnH).build());
+        addRenderableWidget(Button.builder(Component.literal("- Page"),
+                        b -> { HotbarManager.removePage(HotbarManager.getPage()); updatePageInput(); })
+                .pos(btnX+btnW+gap, btnY).size(btnW, btnH).build());
+    }
+
+    /** Handler for when the top EditBox changes: renames the current page. */
+    private void onPageInputChanged(String newName) {
+        HotbarManager.renamePage(HotbarManager.getPage(), newName);
+        pageListWidget.updatePages();
     }
 
     @Override
     public void tick() {
         super.tick();
+        if (pageInput.isFocused()) return;  // skip navigation when typing
+
         long now = System.currentTimeMillis();
         KeyMapping[] keys = {
                 KeyBindings.ARROW_LEFT,
@@ -88,8 +141,9 @@ public class HotbarGuiScreen extends Screen {
                     lastRepeat[i] = 0;
                     handleArrowKey(i);
                 } else {
-                    long heldTime = now - keyPressStart[i];
-                    if (heldTime >= INITIAL_DELAY_MS && now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
+                    long held = now - keyPressStart[i];
+                    if (held >= INITIAL_DELAY_MS &&
+                            now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
                         lastRepeat[i] = now;
                         handleArrowKey(i);
                     }
@@ -100,15 +154,14 @@ public class HotbarGuiScreen extends Screen {
         }
     }
 
-    private void handleArrowKey(int index) {
+    private void handleArrowKey(int idx) {
         if (dragging) {
-            int currentPage = HotbarManager.getPage();
-            if (index == 0) HotbarManager.setPage(currentPage - 1);
-            if (index == 1) HotbarManager.setPage(currentPage + 1);
+            int cp = HotbarManager.getPage();
+            HotbarManager.setPage(cp + (idx == 0 || idx == 2 ? -1 : +1));
             updatePageInput();
             return;
         }
-        switch (index) {
+        switch (idx) {
             case 0 -> {
                 int prev = HotbarManager.getPage();
                 HotbarManager.syncFromGame();
@@ -121,269 +174,111 @@ public class HotbarGuiScreen extends Screen {
                 HotbarManager.setPage(prev + 1);
                 if (HotbarManager.getPage() != prev) updatePageInput();
             }
-            case 2 -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "handleArrowKey(UP)");
-            }
-            case 3 -> {
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "handleArrowKey(DOWN)");
-            }
-        }
-    }
-
-    public void updatePageInput() {
-        String expected = String.valueOf(HotbarManager.getPage() + 1);
-        if (!pageInput.getValue().equals(expected)) {
-            pageInput.setResponder(s -> {});
-            pageInput.setValue(expected);
-            pageInput.setResponder(value -> {
-                try {
-                    int p = Integer.parseInt(value) - 1;
-                    if (p >= 0 && p < ultimatehotbars.MAX_PAGES) {
-                        HotbarManager.syncFromGame();
-                        HotbarManager.setPage(p);
-                    }
-                } catch (NumberFormatException ignored) {}
-            });
+            case 2 -> HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "arrowUp");
+            case 3 -> HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "arrowDown");
         }
     }
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        boolean ctrl = hasControlDown();
-        boolean isHotbarKey =
-                keyCode == GLFW.GLFW_KEY_LEFT ||
-                        keyCode == GLFW.GLFW_KEY_RIGHT ||
-                        keyCode == GLFW.GLFW_KEY_UP ||
-                        keyCode == GLFW.GLFW_KEY_DOWN ||
-                        keyCode == GLFW.GLFW_KEY_MINUS ||
-                        keyCode == GLFW.GLFW_KEY_EQUAL ||
-                        (ctrl && (keyCode == GLFW.GLFW_KEY_MINUS || keyCode == GLFW.GLFW_KEY_EQUAL));
-        if (isHotbarKey) {
-            if (pageInput.isFocused()) pageInput.setFocused(false);
+        if (pageInput.isFocused()) {
+            // Let EditBox handle backspace, typing, etc.
+            if (pageInput.keyPressed(keyCode, scanCode, modifiers)) return true;
+            // Allow Escape to close while typing
+            if (keyCode == GLFW.GLFW_KEY_ESCAPE) return super.keyPressed(keyCode, scanCode, modifiers);
+            // Swallow everything else
             return true;
         }
+        // Swallow raw arrows so focus doesn’t jump
+        if (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT ||
+                keyCode == GLFW.GLFW_KEY_UP   || keyCode == GLFW.GLFW_KEY_DOWN) {
+            return true;
+        }
+        // Delete clears current hotbar
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             HotbarManager.getCurrentHotbar().clear();
             HotbarManager.syncToGame();
-            // play clear sound
-            Minecraft.getInstance().player.playSound(
-                    SoundEvents.ITEM_BREAK,
-                    1.0F, 1.0F
-            );
+            Minecraft.getInstance().player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
             return true;
         }
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
-        this.renderBackground(graphics);
-        pageInput.render(graphics, mouseX, mouseY, partialTicks);
-
-        // ——— Compute hotbar layout —————————————
-        int topY     = pageInput.getY() + pageInput.getHeight() + 6;
-        int bottomY  = this.height - 30;
-        int rows      = ultimatehotbars.HOTBARS_PER_PAGE;
-        int rowHeight = 22;
-        int totalH    = rows * rowHeight;
-        int startY    = topY + ((bottomY - topY) - totalH) / 2;
-        int midX      = this.width / 2;
-        int bgWidth   = 182;
-        int bgHeight  = 22;
-        int border    = 1;
-        int cellW     = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
-        int cellH     = bgHeight;
-        int baseX     = midX - bgWidth / 2 + border;
-
-        List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
-        int selHb = HotbarManager.getHotbar();
-
-        // draw each row + its items
-        for (int row = 0; row < pageHotbars.size(); row++) {
-            int y = startY + row * rowHeight;
-            Hotbar hb = pageHotbars.get(row);
-
-            RenderSystem.setShaderTexture(0, HOTBAR_TEX);
-            graphics.blit(HOTBAR_TEX, baseX - border, y - 3, 0, 0, bgWidth, bgHeight);
-
-            // highlight selected hotbar
-            if (row == selHb) {
-                float[] c = Config.highlightColor();
-                int color = ((int)(c[3]*255)<<24) |
-                        ((int)(c[0]*255)<<16) |
-                        ((int)(c[1]*255)<< 8) |
-                        (int)(c[2]*255);
-                graphics.fill(
-                        baseX - border, y - 3,
-                        baseX - border + bgWidth, y - 3 + bgHeight,
-                        color
-                );
-            }
-
-            // row label
-            String lbl = String.valueOf(row + 1);
-            graphics.drawString(
-                    this.font, lbl,
-                    baseX - border - 3 - this.font.width(lbl),
-                    y + (rowHeight - this.font.lineHeight)/2,
-                    0xFFFFFF
-            );
-
-            int yOffset = y - 3;
-            for (int slot = 0; slot < Hotbar.SLOT_COUNT; slot++) {
-                ItemStack stack = hb.getSlot(slot);
-                int ix = baseX + slot * cellW + (cellW - 16)/2;
-                int iy = yOffset + (cellH - 16)/2;
-                graphics.renderItem(stack, ix, iy);
-                graphics.renderItemDecorations(this.font, stack, ix, iy);
-            }
-        }
-
-        // ——— Delete box —————————————————————————
-        int deleteW = 50;
-        int deleteH = totalH;
-        int deleteX = 10;                                        // align with Config button x
-        int deleteY = (this.height - 30) - deleteH - 5;          // 5px above Config button
-
-        // pulsating alpha
-        long now2    = System.currentTimeMillis();
-        float t2     = (now2 % 1000L) / 1000f;
-        float pulse2 = (float)(Math.sin(2 * Math.PI * t2) * 0.5 + 0.5);
-        int alpha2   = (int)(pulse2 * 255);
-        int redColor = (alpha2 << 24) | (0xFF << 16);
-
-        // semi-transparent background
-        graphics.fill(deleteX, deleteY, deleteX + deleteW, deleteY + deleteH, 0x88000000);
-
-        // 2px red border
-        for (int i = 0; i < 2; i++) {
-            // top
-            graphics.fill(deleteX + i, deleteY + i,
-                    deleteX + deleteW - i, deleteY + i + 1,
-                    redColor);
-            // bottom
-            graphics.fill(deleteX + i, deleteY + deleteH - i - 1,
-                    deleteX + deleteW - i, deleteY + deleteH - i,
-                    redColor);
-            // left
-            graphics.fill(deleteX + i, deleteY + i,
-                    deleteX + i + 1, deleteY + deleteH - i,
-                    redColor);
-            // right
-            graphics.fill(deleteX + deleteW - i - 1, deleteY + i,
-                    deleteX + deleteW - i, deleteY + deleteH - i,
-                    redColor);
-        }
-
-        // "Drop To Delete Item" label centered
-        graphics.drawCenteredString(
-                this.font,
-                "Delete",
-                deleteX + deleteW/2,
-                deleteY + (deleteH - this.font.lineHeight)/2,
-                0xFFFFFFFF
-        );
-
-        // ——— Hover-slot border (existing) —————————
-        int[] hover = getSlotCoords(mouseX, mouseY);
-        if (hover != null) {
-            int hoverRow  = hover[0];
-            int hoverSlot = hover[1];
-            int hy = startY + hoverRow * rowHeight - 3;
-            int hx = baseX + hoverSlot * cellW;
-
-            float[] arr = Config.hoverBorderColor();
-            float pulse3 = (float)(Math.sin(2 * Math.PI * t2)*0.5 + 0.5);
-            int alpha3 = (int)(arr[3] * pulse3 * 255);
-            int cr = (int)(arr[0] * 255);
-            int cg = (int)(arr[1] * 255);
-            int cb = (int)(arr[2] * 255);
-            int color3 = (alpha3<<24)|(cr<<16)|(cg<<8)|cb;
-            int thickness = 1;
-            graphics.fill(hx, hy, hx + cellW,           hy + thickness, color3);
-            graphics.fill(hx, hy + cellH - thickness,   hx + cellW,      hy + cellH,     color3);
-            graphics.fill(hx, hy,                       hx + thickness,  hy + cellH,     color3);
-            graphics.fill(hx + cellW - thickness, hy,  hx + cellW,      hy + cellH,     color3);
-        }
-
-        super.render(graphics, mouseX, mouseY, partialTicks);
-
-        // dragged item
-        if (dragging && !draggedStack.isEmpty()) {
-            graphics.renderItem(draggedStack, mouseX, mouseY);
-            graphics.renderItemDecorations(this.font, draggedStack, mouseX, mouseY);
-        }
+    public boolean mouseScrolled(double mx, double my, double delta) {
+        if (pageListWidget.mouseScrolled(mx, my, delta)) return true;
+        return super.mouseScrolled(mx, my, delta);
     }
 
-
-
-
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
-        int[] coords = getSlotCoords(mouseX, mouseY);
-        if (coords == null) return super.mouseClicked(mouseX, mouseY, button);
+    public boolean mouseClicked(double mx, double my, int btn) {
+        // 0) Intercept left-clicks in the page list rectangle
+        if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            int listX  = pageListWidget.getLeft();
+            int listY  = pageListWidget.getTop();
+            int listW  = pageListWidget.getWidth();
+            int listH  = pageListWidget.getHeight();
+            int entryH = 20; // same as the itemHeight used above
+            if (mx >= listX && mx < listX + listW &&
+                    my >= listY && my < listY + listH) {
+                int relY = (int)((my - listY) + pageListWidget.getScrollAmount());
+                int clickedIndex = relY / entryH;
+                if (clickedIndex >= 0 && clickedIndex < HotbarManager.getPageCount()) {
+                    HotbarManager.syncFromGame();
+                    HotbarManager.setPage(clickedIndex);
+                    updatePageInput();
+                    return true;
+                }
+            }
+        }
+
+        // 1) Then let the list widget handle its own scrolling if needed
+        if (pageListWidget.mouseClicked(mx, my, btn)) {
+            return true;
+        }
+
+        // 2) Otherwise, fall back to drag/drop & hotbar logic
+        int[] coords = getSlotCoords(mx, my);
+        if (coords == null) return super.mouseClicked(mx, my, btn);
+
         sourcePage    = HotbarManager.getPage();
         sourceRow     = coords[0];
         sourceSlotIdx = coords[1];
         sourceHotbar  = HotbarManager.getCurrentPageHotbars().get(sourceRow);
         potentialDrag = true;
-        pressX = mouseX; pressY = mouseY;
-
-        // Play pickup sound
-        Minecraft.getInstance().player.playSound(
-                SoundEvents.ITEM_PICKUP,
-                1.0F, 1.0F
-        );
+        pressX = mx; pressY = my;
+        Minecraft.getInstance().player.playSound(SoundEvents.ITEM_PICKUP, 1.0F, 1.0F);
         return true;
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (potentialDrag && !dragging) {
-            double dx = mouseX - pressX;
-            double dy = mouseY - pressY;
-            if (Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
+            if (Math.hypot(mx - pressX, my - pressY) >= DRAG_THRESHOLD) {
                 dragging = true;
                 draggedStack = sourceHotbar.getSlot(sourceSlotIdx).copy();
                 sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
             }
         }
-        return dragging || super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+        return dragging || super.mouseDragged(mx, my, btn, dx, dy);
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(double mx, double my, int btn) {
         if (dragging) {
-            // —— Compute delete‐box bounds (left side, above Config button) ——
-            int rows      = ultimatehotbars.HOTBARS_PER_PAGE;
-            int rowHeight = 22;
-            int totalH    = rows * rowHeight;
-            int deleteW   = 50;
-            int deleteH   = totalH;
-            int deleteX   = 10;
-            int deleteY   = (this.height - 30) - deleteH - 5;
-
-            // If dropped into Delete box → discard
-            if (mouseX >= deleteX && mouseX < deleteX + deleteW
-                    && mouseY >= deleteY && mouseY < deleteY + deleteH) {
-                Minecraft.getInstance().player.playSound(
-                        SoundEvents.ITEM_BREAK,
-                        1.0F, 1.0F
-                );
-                dragging      = false;
-                potentialDrag = false;
-                draggedStack  = ItemStack.EMPTY;
+            int rows = ultimatehotbars.HOTBARS_PER_PAGE, rowH = 22, totalH = rows * rowH;
+            int delX = 10, delY = (this.height - 30) - totalH - 5;
+            // Delete-zone
+            if (mx >= delX && mx < delX + 50 && my >= delY && my < delY + totalH) {
+                Minecraft.getInstance().player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
+                dragging = false; potentialDrag = false; draggedStack = ItemStack.EMPTY;
                 HotbarManager.saveHotbars();
                 return true;
             }
-
-            // —— Otherwise fall back to original slot‐swap logic ——
-            int[] coords = getSlotCoords(mouseX, mouseY);
-            int dropPage = HotbarManager.getPage();
-
-            if (coords != null && dropPage == sourcePage
+            // Swap/drop
+            int[] coords = getSlotCoords(mx, my);
+            int dropPg = HotbarManager.getPage();
+            if (coords != null && dropPg == sourcePage
                     && coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             } else if (coords != null) {
@@ -394,117 +289,267 @@ public class HotbarGuiScreen extends Screen {
             } else {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
-
             HotbarManager.saveHotbars();
             HotbarManager.syncToGame();
+            Minecraft.getInstance().player.playSound(SoundEvents.ITEM_PICKUP, 1.0F, 0.8F);
+            dragging = false; potentialDrag = false; draggedStack = ItemStack.EMPTY;
+            return true;
+        }
+        potentialDrag = false;
+        return handleClick(mx, my, btn);
+    }
 
-            // play place/swap sound
-            Minecraft.getInstance().player.playSound(
-                    SoundEvents.ITEM_PICKUP,
-                    1.0F,
-                    0.8F
+    private boolean handleClick(double mx, double my, int btn) {
+        int topY    = pageInput.getY() + pageInput.getHeight() + 6;
+        int bottomY = this.height - 30;
+        int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+        int h       = 22;
+        int totalH  = rows * h;
+        int startY  = topY + ((bottomY - topY) - totalH) / 2;
+        int slotW   = (182 - 2) / Hotbar.SLOT_COUNT;
+        int totalW  = slotW * Hotbar.SLOT_COUNT;
+        int baseX   = (this.width/2) - totalW/2;
+
+        // Right-click to open inventory
+        if (btn == GLFW.GLFW_MOUSE_BUTTON_RIGHT
+                && mx >= baseX && mx < baseX + totalW
+                && my >= startY && my < startY + totalH) {
+            int row = Mth.clamp((int)((my - startY)/h), 0, rows-1);
+            HotbarManager.syncFromGame();
+            HotbarManager.setHotbar(row, "mouseClick(RIGHT)");
+            HotbarManager.syncToGame();
+            Minecraft.getInstance().setScreen(
+                    new InventoryScreen(Minecraft.getInstance().player)
             );
-
-
-
-            dragging      = false;
-            potentialDrag = false;
-            draggedStack  = ItemStack.EMPTY;
+            return true;
+        }
+        // Left-click to swap/place
+        if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT
+                && mx >= baseX && mx < baseX + totalW
+                && my >= startY && my < startY + totalH) {
+            int row = Mth.clamp((int)((my - startY)/h), 0, rows-1);
+            int slot = Mth.clamp((int)((mx - baseX)/slotW), 0, Hotbar.SLOT_COUNT-1);
+            HotbarManager.setHotbar(row, "mouseClick(LEFT)");
+            HotbarManager.setSlot(slot);
+            HotbarManager.syncFromGame();
+            Minecraft mc = Minecraft.getInstance();
+            mc.player.getInventory().selected = slot;
+            mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
+            HotbarManager.syncToGame();
+            mc.setScreen(null);
             return true;
         }
 
-        potentialDrag = false;
-        return handleClick(mouseX, mouseY, button);
-    }
-
-
-
-    private boolean handleClick(double mouseX, double mouseY, int button) {
-        int topY = pageInput.getY() + pageInput.getHeight() + 6;
-        int bottomY = this.height - 30;
-        int rows = ultimatehotbars.HOTBARS_PER_PAGE;
-        int rowHeight = 22;
-        int totalH = rows * rowHeight;
-        int startY = topY + ((bottomY - topY) - totalH) / 2;
-        int midX = this.width / 2;
-        int slotW = (182 - 2) / Hotbar.SLOT_COUNT;
-        int totalW = slotW * Hotbar.SLOT_COUNT;
-        int baseX = midX - totalW / 2;
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (mouseX >= baseX && mouseX < baseX + totalW &&
-                    mouseY >= startY && mouseY < startY + totalH) {
-                int row = (int)((mouseY - startY) / rowHeight);
-                row = Math.min(Math.max(row, 0), rows - 1);
-                HotbarManager.syncFromGame();
-                HotbarManager.setHotbar(row, "mouseClick(RIGHT)");
-                HotbarManager.syncToGame();
-                Minecraft.getInstance().setScreen(new InventoryScreen(Minecraft.getInstance().player));
-                return true;
-            }
-        }
-        if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-            if (mouseX >= baseX && mouseX < baseX + totalW &&
-                    mouseY >= startY && mouseY < startY + totalH) {
-                int row = (int)((mouseY - startY) / rowHeight);
-                int slot = (int)((mouseX - baseX) / slotW);
-                row = Math.min(Math.max(row, 0), rows - 1);
-                slot = Math.min(Math.max(slot, 0), Hotbar.SLOT_COUNT - 1);
-                HotbarManager.setHotbar(row, "mouseClick(LEFT)");
-                HotbarManager.setSlot(slot);
-                HotbarManager.syncFromGame();
-                Minecraft mc = Minecraft.getInstance();
-                mc.player.getInventory().selected = slot;
-                mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
-                HotbarManager.syncToGame();
-                mc.setScreen(null);
-                return true;
-            }
-        }
         return false;
     }
 
-    private int[] getSlotCoords(double mouseX, double mouseY) {
-        int bgWidth = 182;
-        int cellH = 22;
+    private int[] getSlotCoords(double mx, double my) {
+        int bgW    = 182;
+        int cellH  = 22;
         int border = 1;
-        int cellW = (bgWidth - border * 2) / Hotbar.SLOT_COUNT;
-        int topY = pageInput.getY() + pageInput.getHeight() + 6;
-        int bottomY = this.height - 30;
+        int cellW  = (bgW - border*2)/Hotbar.SLOT_COUNT;
+        int topY   = pageInput.getY() + pageInput.getHeight() + 6;
+        int botY   = this.height - 30;
         int totalH = ultimatehotbars.HOTBARS_PER_PAGE * cellH;
-        int startY = topY + ((bottomY - topY) - totalH) / 2;
-        int baseX = (this.width - bgWidth) / 2 + border;
-        if (mouseX < baseX || mouseX >= baseX + cellW * Hotbar.SLOT_COUNT ||
-                mouseY < startY || mouseY >= startY + totalH) {
+        int startY = topY + ((botY - topY) - totalH)/2;
+        int baseX  = (this.width - bgW)/2 + border;
+
+        if (mx < baseX || mx >= baseX + cellW*Hotbar.SLOT_COUNT
+                || my < startY || my >= startY + totalH) {
             return null;
         }
-        int row = (int)((mouseY - startY) / cellH);
-        int slot = (int)((mouseX - baseX) / cellW);
-        row = Math.min(Math.max(row, 0), ultimatehotbars.HOTBARS_PER_PAGE - 1);
-        slot = Math.min(Math.max(slot, 0), Hotbar.SLOT_COUNT - 1);
-        return new int[]{row, slot};
+        int row  = Mth.clamp((int)((my - startY)/cellH), 0, ultimatehotbars.HOTBARS_PER_PAGE - 1);
+        int slot = Mth.clamp((int)((mx - baseX)/cellW),    0, Hotbar.SLOT_COUNT - 1);
+        return new int[]{ row, slot };
+    }
+
+    @Override
+    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
+        // 1) background + rename textbox + list
+        this.renderBackground(graphics);
+        pageInput.render(graphics, mouseX, mouseY, partialTicks);
+        pageListWidget.render(graphics, mouseX, mouseY, partialTicks);
+
+        // 2) draw hotbars + delete zone + hover + drag preview
+        int topY     = pageInput.getY() + pageInput.getHeight() + 6;
+        int bottomY  = this.height - 30;
+        int rows     = ultimatehotbars.HOTBARS_PER_PAGE;
+        int rowH     = 22;
+        int totalH   = rows * rowH;
+        int startY   = topY + ((bottomY - topY) - totalH) / 2;
+        int midX     = this.width / 2;
+        int bgW      = 182, bgH = 22, border = 1;
+        int cellW    = (bgW - border*2) / Hotbar.SLOT_COUNT;
+        int cellH    = bgH;
+        int baseX    = midX - bgW/2 + border;
+        List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
+        int selHb    = HotbarManager.getHotbar();
+        long now2    = System.currentTimeMillis();
+        float t2     = (now2 % 1000L) / 1000f;
+
+        // Each row
+        for (int row = 0; row < pageHotbars.size(); row++) {
+            int y = startY + row*rowH;
+            Hotbar hb = pageHotbars.get(row);
+
+            RenderSystem.setShaderTexture(0, HOTBAR_TEX);
+            graphics.blit(HOTBAR_TEX, baseX-border, y-3, 0, 0, bgW, bgH);
+
+            // highlight selected hotbar
+            if (row == selHb) {
+                float[] c = Config.highlightColor();
+                int color = ((int)(c[3]*255)<<24)
+                        | ((int)(c[0]*255)<<16)
+                        | ((int)(c[1]*255)<< 8)
+                        |  (int)(c[2]*255);
+                graphics.fill(
+                        baseX-border, y-3,
+                        baseX-border+bgW, y-3+bgH,
+                        color
+                );
+            }
+
+            // row label
+            String lbl = String.valueOf(row+1);
+            graphics.drawString(
+                    this.font, lbl,
+                    baseX-border-3-this.font.width(lbl),
+                    y + (rowH - this.font.lineHeight)/2,
+                    0xFFFFFF
+            );
+
+            // items
+            int yOff = y-3;
+            for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
+                ItemStack stack = hb.getSlot(s);
+                int ix = baseX + s*cellW + (cellW-16)/2;
+                int iy = yOff + (cellH-16)/2;
+                graphics.renderItem(stack, ix, iy);
+                graphics.renderItemDecorations(this.font, stack, ix, iy);
+            }
+        }
+
+        // Delete-zone
+        int delW=50, delH=totalH, delX=10, delY=(this.height-30)-delH-5;
+        float pulse2 = (float)(Math.sin(2*Math.PI*t2)*0.5 + 0.5f);
+        int alpha2 = (int)(pulse2 * 255), red = (alpha2<<24)|(0xFF<<16);
+        graphics.fill(delX, delY, delX+delW, delY+delH, 0x88000000);
+        for (int i = 0; i < 2; i++) {
+            graphics.fill(delX+i, delY+i, delX+delW-i,   delY+i+1,      red);
+            graphics.fill(delX+i, delY+delH-i-1, delX+delW-i, delY+delH-i, red);
+            graphics.fill(delX+i, delY+i, delX+i+1, delY+delH-i, red);
+            graphics.fill(delX+delW-i-1, delY+i, delX+delW-i, delY+delH-i, red);
+        }
+        graphics.drawCenteredString(
+                this.font, "Delete",
+                delX+delW/2,
+                delY + (delH - this.font.lineHeight)/2,
+                0xFFFFFFFF
+        );
+
+        // Hover-slot border
+        int[] hov = getSlotCoords(mouseX, mouseY);
+        if (hov != null) {
+            int hr = hov[0], hs = hov[1];
+            int hy = startY + hr*rowH - 3;
+            int hx = baseX + hs*cellW;
+            float[] arr = Config.hoverBorderColor();
+            float pulse3 = (float)(Math.sin(2*Math.PI*t2)*0.5 + 0.5f);
+            int alpha3 = (int)(arr[3]*pulse3*255),
+                    cr = (int)(arr[0]*255),
+                    cg = (int)(arr[1]*255),
+                    cb = (int)(arr[2]*255);
+            int col3 = (alpha3<<24)|(cr<<16)|(cg<<8)|cb, t=1;
+            graphics.fill(hx,             hy,            hx+cellW,      hy+t,      col3);
+            graphics.fill(hx,             hy+cellH-t,    hx+cellW,      hy+cellH,  col3);
+            graphics.fill(hx,             hy,            hx+t,          hy+cellH,  col3);
+            graphics.fill(hx+cellW-t,     hy,            hx+cellW,      hy+cellH,  col3);
+        }
+
+        // Finally draw children (buttons/list) and dragged item
+        super.render(graphics, mouseX, mouseY, partialTicks);
+        if (dragging && !draggedStack.isEmpty()) {
+            graphics.renderItem(draggedStack, mouseX, mouseY);
+            graphics.renderItemDecorations(this.font, draggedStack, mouseX, mouseY);
+        }
     }
 
     @Override
     public void removed() {
-        // if we were mid-drag, put it back
         if (dragging) {
             sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-            dragging = false;
-            potentialDrag = false;
-            draggedStack = ItemStack.EMPTY;
+            dragging = false; potentialDrag = false; draggedStack = ItemStack.EMPTY;
         }
         HotbarManager.saveHotbars();
         HotbarManager.syncToGame();
         super.removed();
     }
 
-    @Override
-    public boolean shouldCloseOnEsc() {
-        return true;
-    }
+    @Override public boolean shouldCloseOnEsc() { return true; }
+    @Override public boolean isPauseScreen()    { return false; }
 
-    @Override
-    public boolean isPauseScreen() {
-        return false;
+    /**
+     * Scrollable list of pages on the right side of the GUI.
+     */
+    private class PageListWidget extends ObjectSelectionList<PageListWidget.Entry> {
+        public PageListWidget(Minecraft mc, int w, int h, int top, int bottom, int itemH) {
+            super(mc, w, h, top, bottom, itemH);
+        }
+
+        protected int getScrollbarPositionX() {
+            return this.getRowLeft() + getRowWidth() - 6;
+        }
+
+        public int getRowWidth() {
+            return this.width;
+        }
+
+        public void updatePages() {
+            this.clearEntries();
+            var names = HotbarManager.getPageNames();
+            for (int i = 0; i < names.size(); i++) {
+                this.addEntry(new Entry(names.get(i), i));
+            }
+            int cur = HotbarManager.getPage();
+            this.setSelected(this.children().get(cur));
+            this.ensureVisible(this.children().get(cur));
+        }
+
+        private class Entry extends ObjectSelectionList.Entry<Entry> {
+            private final String name;
+            private final int index;
+
+            Entry(String name, int index) {
+                this.name  = name;
+                this.index = index;
+            }
+
+            @Override
+            public void render(GuiGraphics g, int entryIdx, int y, int x, int listW, int entryH,
+                               int mouseX, int mouseY, boolean isSelected, float pt) {
+                int color = isSelected ? 0xFFFFFFFF : 0xFFAAAAAA;
+                if (!isSelected
+                        && mouseX >= x && mouseX < x + listW
+                        && mouseY >= y && mouseY < y + entryH) {
+                    float[] c = Config.highlightColor();
+                    color = ((int)(c[3]*255)<<24)
+                            | ((int)(c[0]*255)<<16)
+                            | ((int)(c[1]*255)<<8)
+                            |  (int)(c[2]*255);
+                }
+                g.drawString(font, name, x + 2, y + (entryH - font.lineHeight)/2, color, false);
+            }
+
+            @Override
+            public boolean mouseClicked(double mx, double my, int btn) {
+                // no longer needed
+                return super.mouseClicked(mx, my, btn);
+            }
+
+            public void updateNarration(net.minecraft.client.gui.narration.NarrationElementOutput ne) {}
+            public net.minecraft.network.chat.Component getNarration() {
+                return Component.literal(name);
+            }
+        }
     }
 }

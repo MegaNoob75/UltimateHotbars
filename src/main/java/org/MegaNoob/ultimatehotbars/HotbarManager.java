@@ -4,60 +4,109 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraft.world.item.ItemStack;
-import java.io.File;
-import java.util.ArrayList;
+import net.minecraft.nbt.NbtIo;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 import org.MegaNoob.ultimatehotbars.network.SyncHotbarPacket;
+
+import java.io.File;
+import java.util.ArrayList;
 import java.util.List;
 
 public class HotbarManager {
-    public static final int PAGES = 100;
     public static final int HOTBARS_PER_PAGE = 10;
 
-    // Nested list: pages.get(pageIndex).get(hotbarIndex)
+    // Holds the virtual hotbars: pages.get(pageIndex).get(hotbarIndex)
     private static final List<List<Hotbar>> pages = new ArrayList<>();
-    private static int currentPage = 0;
-    private static int currentHotbar = 0;
-    private static int currentSlot = 0;
+    // Holds the display names for each page
+    private static final List<String> pageNames = new ArrayList<>();
 
-    // Debug tracking
+    private static int currentPage   = 0;
+    private static int currentHotbar = 0;
+    private static int currentSlot   = 0;
+
+    private static final File SAVE_FILE =
+            FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars_hotbars.dat").toFile();
+
+    // Debug tracking (unchanged) ...
     public static String lastHotbarSource = "";
     public static int lastHotbarSet = -1;
     public static int lastSavedHotbar = -1;
     public static int lastSavedPage = -1;
     public static int lastSavedSlot = -1;
 
-    private static final File SAVE_FILE =
-            FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars_hotbars.dat").toFile();
-
     static {
-        // Initialize empty structure
-        for (int i = 0; i < PAGES; i++) {
-            List<Hotbar> page = new ArrayList<>(HOTBARS_PER_PAGE);
-            for (int j = 0; j < HOTBARS_PER_PAGE; j++) {
-                page.add(new Hotbar());
-            }
-            pages.add(page);
+        // Initialize with a single default page
+        addPageInternal();
+        // You can call loadHotbars() explicitly on login to overwrite these defaults
+    }
+
+    // ================================================================
+    // Page & Name Management
+    // ================================================================
+
+    /** Returns how many pages are currently available. */
+    public static int getPageCount() {
+        return pages.size();
+    }
+
+    /** Returns an immutable copy of all page names. */
+    public static List<String> getPageNames() {
+        return new ArrayList<>(pageNames);
+    }
+
+    /** Adds a new empty page at the end, default named "Page N". */
+    public static void addPage() {
+        addPageInternal();
+    }
+
+    /** Removes the page at index (except index=0), then rewraps if needed. */
+    public static void removePage(int index) {
+        if (index <= 0 || index >= pages.size()) return;
+        pages.remove(index);
+        pageNames.remove(index);
+        if (currentPage >= pages.size()) {
+            currentPage = pages.size() - 1;
         }
     }
 
-    /** Returns the Hotbar object for the currently-selected page & hotbar. */
+    /** Renames the page at idx to the given newName. */
+    public static void renamePage(int idx, String newName) {
+        if (idx >= 0 && idx < pageNames.size()) {
+            pageNames.set(idx, newName);
+        }
+    }
+
+    /** Internal helper: create one new empty page + default name. */
+    private static void addPageInternal() {
+        List<Hotbar> page = new ArrayList<>(HOTBARS_PER_PAGE);
+        for (int i = 0; i < HOTBARS_PER_PAGE; i++) {
+            page.add(new Hotbar());
+        }
+        pages.add(page);
+        pageNames.add("Page " + pages.size());
+    }
+
+    // ================================================================
+    // Accessors for current selection
+    // ================================================================
+
     public static Hotbar getCurrentHotbar() {
         return pages.get(currentPage).get(currentHotbar);
     }
 
-    /** Sets the current page (with wrap-around) and immediately applies it in-game. */
+    public static List<Hotbar> getCurrentPageHotbars() {
+        return new ArrayList<>(pages.get(currentPage));
+    }
+
+    public static int getPage()   { return currentPage; }
+    public static int getHotbar() { return currentHotbar; }
+    public static int getSlot()   { return currentSlot; }
+
     public static void setPage(int page) {
-        currentPage = ((page % PAGES) + PAGES) % PAGES;
+        currentPage = Math.max(0, Math.min(page, pages.size() - 1));
         syncToGame();
     }
 
-    /** Overload: Sets the current hotbar index with no source tag. */
-    public static void setHotbar(int hb) {
-        setHotbar(hb, "unknown");
-    }
-
-    /** Sets the current hotbar index with source tag tracking, and applies it. */
     public static void setHotbar(int hb, String sourceTag) {
         currentHotbar = ((hb % HOTBARS_PER_PAGE) + HOTBARS_PER_PAGE) % HOTBARS_PER_PAGE;
         lastHotbarSet = currentHotbar;
@@ -65,104 +114,93 @@ public class HotbarManager {
         syncToGame();
     }
 
-    /** Only tracks which slot (0–8) is selected in-game; does not auto‐apply. */
     public static void setSlot(int slot) {
-        currentSlot = Math.max(0, Math.min(Hotbar.SLOT_COUNT - 1, slot));
+        currentSlot = Math.max(0, Math.min(slot, Hotbar.SLOT_COUNT - 1));
     }
 
-    public static int getPage()     { return currentPage; }
-    public static int getHotbar()   { return currentHotbar; }
-    public static int getSlot()     { return currentSlot; }
+    // ================================================================
+    // Syncing to Game & Networking (unchanged)
+    // ================================================================
 
-    // ------------------------------------------------------------------------
-    // Persistence & Syncing
-    // ------------------------------------------------------------------------
-
-    /** Overwrites the player's in-game hotbar slots (0–8) from the virtual hotbar. */
+    /**
+     * Overwrites the player's in-game hotbar slots (0–8) from the virtual hotbar
+     * and sends them to the server.
+     */
     public static void syncToGame() {
-        var player = net.minecraft.client.Minecraft.getInstance().player;
-        if (player == null) return;
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        if (mc.player == null) return;
 
-        Hotbar vb = getCurrentHotbar();
-        // Clear
+        // 1) Clear the real hotbar
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
-            player.getInventory().setItem(i, ItemStack.EMPTY);
+            mc.player.getInventory().setItem(i, ItemStack.EMPTY);
         }
-        // Populate
+
+        // 2) Populate it from our virtual current hotbar
+        Hotbar vb = getCurrentHotbar();
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
-            ItemStack stack = vb.getSlot(i);
-            if (stack != null && !stack.isEmpty()) {
-                player.getInventory().setItem(i, stack.copy());
+            ItemStack s = vb.getSlot(i);
+            if (s != null && !s.isEmpty()) {
+                mc.player.getInventory().setItem(i, s.copy());
             }
         }
 
-        // ── NEW: also sync to server so it places the correct blocks
+        // 3) Send to server so it can update the player's server-side inventory
         ItemStack[] stacks = new ItemStack[Hotbar.SLOT_COUNT];
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             stacks[i] = vb.getSlot(i).copy();
         }
-
         PacketHandler.CHANNEL.sendToServer(
-                new SyncHotbarPacket(getPage(), getHotbar(), stacks)
+                new SyncHotbarPacket(
+                        getPage(),
+                        getHotbar(),
+                        stacks            // <-- only three arguments
+                )
         );
     }
 
-    /** Reads from the player's in-game hotbar slots into the virtual hotbar and saves. */
+
     public static void syncFromGame() {
-        var player = net.minecraft.client.Minecraft.getInstance().player;
-        if (player == null) return;
+        var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
+        if (mcPlayer == null) return;
         Hotbar vb = getCurrentHotbar();
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
-            vb.setSlot(i, player.getInventory().getItem(i).copy());
+            vb.setSlot(i, mcPlayer.getInventory().getItem(i).copy());
         }
         saveHotbars();
     }
 
-    /** Loads all pages & hotbars from disk (if present). */
-    public static void loadHotbars() {
-        if (!SAVE_FILE.exists()) return;
-        try {
-            CompoundTag root = net.minecraft.nbt.NbtIo.read(SAVE_FILE);
-            if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) return;
-            CompoundTag map = root.getCompound("HotbarsMap");
-            for (int idx = 0; idx < PAGES * HOTBARS_PER_PAGE; idx++) {
-                String key = String.valueOf(idx);
-                if (map.contains(key, Tag.TAG_COMPOUND)) {
-                    CompoundTag htag = map.getCompound(key);
-                    int page   = idx / HOTBARS_PER_PAGE;
-                    int hbNum  = idx % HOTBARS_PER_PAGE;
-                    pages.get(page).set(hbNum, Hotbar.deserializeNBT(htag));
-                }
-            }
+    // ================================================================
+    // Persistence: saveHotbars + loadHotbars now include pageNames
+    // ================================================================
 
-            // 🔽 Load last known page/hotbar/slot AFTER restoring hotbars
-            HotbarState.loadState();
-            net.minecraft.client.Minecraft.getInstance().player.getInventory().selected = currentSlot;
-
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    /** Saves every page & hotbar to disk in a single .dat file. */
     public static void saveHotbars() {
         try {
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
-            for (int idx = 0; idx < PAGES * HOTBARS_PER_PAGE; idx++) {
-                int page  = idx / HOTBARS_PER_PAGE;
-                int hbNum = idx % HOTBARS_PER_PAGE;
-                map.put(String.valueOf(idx),
-                        pages.get(page).get(hbNum).serializeNBT());
+            // Save each slot under a flat index
+            for (int pi = 0; pi < pages.size(); pi++) {
+                for (int hi = 0; hi < HOTBARS_PER_PAGE; hi++) {
+                    int idx = pi * HOTBARS_PER_PAGE + hi;
+                    map.put(String.valueOf(idx),
+                            pages.get(pi).get(hi).serializeNBT());
+                }
             }
             root.put("HotbarsMap", map);
-            net.minecraft.nbt.NbtIo.write(root, SAVE_FILE);
 
-            // 🔽 Save current page/hotbar/slot after hotbars are saved
-            lastSavedPage = getPage();
+            // Save the page names
+            CompoundTag namesTag = new CompoundTag();
+            for (int i = 0; i < pageNames.size(); i++) {
+                namesTag.putString(String.valueOf(i), pageNames.get(i));
+            }
+            root.put("PageNames", namesTag);
+
+            // Write to disk
+            NbtIo.write(root, SAVE_FILE);
+
+            // Debug tracking
+            lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
-            lastSavedSlot = getSlot();
-
+            lastSavedSlot   = getSlot();
             HotbarState.saveState(getPage(), getHotbar(), getSlot());
 
         } catch (Exception e) {
@@ -170,26 +208,57 @@ public class HotbarManager {
         }
     }
 
-    // ------------------------------------------------------------------------
-    // New Accessors for GUI rendering
-    // ------------------------------------------------------------------------
+    public static void loadHotbars() {
+        if (!SAVE_FILE.exists()) return;
+        try {
+            CompoundTag root = NbtIo.read(SAVE_FILE);
+            if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) return;
+            CompoundTag map = root.getCompound("HotbarsMap");
 
-    /**
-     * @return a flat List of length PAGES * HOTBARS_PER_PAGE,
-     *         where index = page * HOTBARS_PER_PAGE + hotbar.
-     */
-    public static List<Hotbar> getHotbars() {
-        List<Hotbar> flat = new ArrayList<>(PAGES * HOTBARS_PER_PAGE);
-        for (List<Hotbar> page : pages) {
-            flat.addAll(page);
+            // Determine how many pages were saved
+            int maxIdx = map.getAllKeys().stream()
+                    .mapToInt(Integer::parseInt)
+                    .max().orElse(-1);
+            int pageCount = (maxIdx / HOTBARS_PER_PAGE) + 1;
+
+            // Reinitialize pages & default names
+            pages.clear();
+            pageNames.clear();
+            for (int pi = 0; pi < pageCount; pi++) {
+                addPageInternal();
+            }
+
+            // Deserialize hotbars
+            for (String key : map.getAllKeys()) {
+                int idx = Integer.parseInt(key);
+                int pi  = idx / HOTBARS_PER_PAGE;
+                int hi  = idx % HOTBARS_PER_PAGE;
+                CompoundTag htag = map.getCompound(key);
+                pages.get(pi).set(hi, Hotbar.deserializeNBT(htag));
+            }
+
+            // Load saved page names (if any)
+            if (root.contains("PageNames", Tag.TAG_COMPOUND)) {
+                CompoundTag namesTag = root.getCompound("PageNames");
+                for (String k : namesTag.getAllKeys()) {
+                    int pi = Integer.parseInt(k);
+                    if (pi >= 0 && pi < pageNames.size()) {
+                        pageNames.set(pi, namesTag.getString(k));
+                    }
+                }
+            }
+
+            // Restore last‐known page/hotbar/slot
+            HotbarState.loadState();
+            var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
+            if (mcPlayer != null) {
+                mcPlayer.getInventory().selected = currentSlot;
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        return flat;
     }
 
-    /**
-     * @return exactly the HOTBARS_PER_PAGE hotbars on the currently-selected page.
-     */
-    public static List<Hotbar> getCurrentPageHotbars() {
-        return new ArrayList<>(pages.get(currentPage));
-    }
+    // … plus any other getters/setters or utility methods you had …
 }

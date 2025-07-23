@@ -17,19 +17,25 @@ import net.minecraftforge.fml.common.Mod;
 import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
+import org.MegaNoob.ultimatehotbars.client.HotbarGuiScreen;
+import org.MegaNoob.ultimatehotbars.client.KeyBindings;
 import org.lwjgl.glfw.GLFW;
 
+/**
+ * Handles all of our key & scroll bindings, plus hotbar sync logic.
+ */
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, bus = Mod.EventBusSubscriber.Bus.FORGE, value = Dist.CLIENT)
 public class ClientEvents {
-    private static final long INITIAL_DELAY_MS = 300;
-    private static final long REPEAT_INTERVAL_MS = 100;
+    private static final long INITIAL_DELAY_MS    = 300;
+    private static final long REPEAT_INTERVAL_MS  = 100;
 
     private static boolean guiJustClosed = false;
     private static boolean lastModifierDown = false;
 
-    private static final boolean[] keyHeld = new boolean[8];
-    private static final long[] keyPressStart = new long[8];
-    private static final long[] lastRepeat = new long[8];
+    // Eight “held” key states for our custom repeats
+    private static final boolean[] keyHeld       = new boolean[8];
+    private static final long[]    keyPressStart = new long[8];
+    private static final long[]    lastRepeat    = new long[8];
     private static final boolean[] skipUntilReleased = new boolean[8];
 
     private static Screen lastScreen = null;
@@ -39,20 +45,26 @@ public class ClientEvents {
 
     @SubscribeEvent
     public static void onPlayerLogin(ClientPlayerNetworkEvent.LoggingIn event) {
-        HotbarManager.loadHotbars(); // Safe: player is now initialized
+        // Safe to load here: player is fully initialized
+        HotbarManager.loadHotbars();
     }
-
 
     @SubscribeEvent
     public static void onScreenKey(ScreenEvent.KeyPressed.Post event) {
         Minecraft mc = Minecraft.getInstance();
+        Screen current = mc.screen;
         if (mc.player == null) return;
 
-        int keyCode = event.getKeyCode();
-        int scanCode = event.getScanCode();
-        InputConstants.Key inputKey = InputConstants.getKey(keyCode, scanCode);
-        Screen current = mc.screen;
+        // ─── IF THE RENAME TEXT BOX IS FOCUSED, IGNORE ALL BOUND KEYS ─────
+        if (current instanceof HotbarGuiScreen gui && gui.isTextFieldFocused()) {
+            return;
+        }
 
+        int keyCode   = event.getKeyCode();
+        int scanCode  = event.getScanCode();
+        InputConstants.Key inputKey = InputConstants.getKey(keyCode, scanCode);
+
+        // Inventory key while in our GUI → open actual inventory
         if (current instanceof HotbarGuiScreen &&
                 mc.options.keyInventory.isActiveAndMatches(inputKey)) {
             mc.setScreen(new InventoryScreen(mc.player));
@@ -61,6 +73,7 @@ public class ClientEvents {
             return;
         }
 
+        // “Open GUI” key while in our GUI → close it
         if (current instanceof HotbarGuiScreen &&
                 KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
             mc.setScreen(null);
@@ -69,6 +82,7 @@ public class ClientEvents {
             return;
         }
 
+        // “Open GUI” key while in a container → switch to our GUI
         if (current instanceof AbstractContainerScreen<?> &&
                 KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
             mc.setScreen(new HotbarGuiScreen());
@@ -81,11 +95,8 @@ public class ClientEvents {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null || mc.screen != null) return;
 
-        int keyCode = event.getKey();
-        int scanCode = event.getScanCode();
-        InputConstants.Key key = InputConstants.getKey(keyCode, scanCode);
-
-        if (KeyBindings.OPEN_GUI.isActiveAndMatches(key)) {
+        // Open our GUI when the key is pressed (unless we just closed it)
+        if (KeyBindings.OPEN_GUI.isActiveAndMatches(InputConstants.getKey(event.getKey(), event.getScanCode()))) {
             if (!guiJustClosed) {
                 mc.setScreen(new HotbarGuiScreen());
             }
@@ -94,7 +105,12 @@ public class ClientEvents {
 
     @SubscribeEvent
     public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
-        if (!(event.getScreen() instanceof HotbarGuiScreen)) return;
+        // Only process scroll when in our GUI
+        if (!(event.getScreen() instanceof HotbarGuiScreen gui)) return;
+
+        // If the textbox is focused, ignore scroll paging
+        if (gui.isTextFieldFocused()) return;
+
         double delta = event.getScrollDelta();
         if (delta == 0) return;
 
@@ -106,31 +122,30 @@ public class ClientEvents {
         // 1) save current edits
         HotbarManager.syncFromGame();
 
-        // 2) adjust indices
+        // 2) adjust indices, with wrap‐around and page increment/decrement
+        int pageCount = HotbarManager.getPageCount();
         if (delta < 0) {
             hotbar++;
             if (hotbar >= HotbarManager.HOTBARS_PER_PAGE) {
                 hotbar = 0;
-                page  = (page + 1) % HotbarManager.PAGES;
+                page  = (page + 1) % pageCount;
                 pageChanged = true;
             }
         } else {
             hotbar--;
             if (hotbar < 0) {
                 hotbar = HotbarManager.HOTBARS_PER_PAGE - 1;
-                page  = (page - 1 + HotbarManager.PAGES) % HotbarManager.PAGES;
+                page  = (page - 1 + pageCount) % pageCount;
                 pageChanged = true;
             }
         }
 
-        // 3) apply new page *only if* it changed, then always apply new hotbar
-        if (pageChanged) {
-            HotbarManager.setPage(page);
-        }
+        // 3) apply new page if changed, then always apply new hotbar
+        if (pageChanged) HotbarManager.setPage(page);
         HotbarManager.setHotbar(hotbar, "scroll wheel");
 
-        // 4) update GUI & sound
-        if (mc.screen instanceof HotbarGuiScreen gui) gui.updatePageInput();
+        // 4) sync UI & play sound
+        if (mc.screen instanceof HotbarGuiScreen g2) g2.updatePageInput();
         if (Config.enableSounds() && mc.player != null) {
             mc.player.playSound(
                     pageChanged
@@ -144,8 +159,6 @@ public class ClientEvents {
         event.setCanceled(true);
     }
 
-
-
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase != TickEvent.Phase.END) return;
@@ -153,6 +166,13 @@ public class ClientEvents {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
+        // ─── IGNORE ALL HOTKEY PROCESSING IF THE TEXTBOX IS FOCUSED ───────
+        Screen scr = mc.screen;
+        if (scr instanceof HotbarGuiScreen gui && gui.isTextFieldFocused()) {
+            return;
+        }
+
+        // Handle just‐closed logic (so holding the GUI‐open key doesn’t immediately reopen)
         if (guiJustClosed) {
             if (!KeyBindings.OPEN_GUI.isDown()) {
                 guiJustClosed = false;
@@ -162,45 +182,44 @@ public class ClientEvents {
 
         long window = mc.getWindow().getWindow();
 
-        boolean ctrlNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL) ||
-                InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
-        boolean shiftNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT) ||
-                InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
-        boolean altNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT) ||
-                InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
+        // Modifier‐key reset logic (unchanged)
+        boolean ctrlNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_CONTROL)
+                || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_CONTROL);
+        boolean shiftNow = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_SHIFT)
+                || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_SHIFT);
+        boolean altNow  = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT)
+                || InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
         boolean modifierNow = ctrlNow || shiftNow || altNow;
 
         if (modifierNow != lastModifierDown) {
             lastModifierDown = modifierNow;
             for (int i = 0; i < keyHeld.length; i++) {
-                keyHeld[i] = false;
+                keyHeld[i]       = false;
                 skipUntilReleased[i] = true;
                 keyPressStart[i] = 0;
-                lastRepeat[i] = 0;
+                lastRepeat[i]    = 0;
             }
         }
 
-        boolean inGui = mc.screen instanceof HotbarGuiScreen || mc.screen instanceof AbstractContainerScreen;
+        boolean inGui = mc.screen instanceof HotbarGuiScreen
+                || mc.screen instanceof AbstractContainerScreen<?>;
         long now = System.currentTimeMillis();
 
-       // boolean ctrlActive = ctrlNow;
-
+        // 8‐entry held‐state array remains unchanged
         boolean[] held = {
                 !ctrlNow && GLFW.glfwGetKey(window, KeyBindings.DECREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
                 !ctrlNow && GLFW.glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW.GLFW_PRESS,
                 KeyBindings.DECREASE_PAGE.isDown(),
                 KeyBindings.INCREASE_PAGE.isDown(),
                 GLFW.glfwGetKey(window, GLFW.GLFW_KEY_RIGHT) == GLFW.GLFW_PRESS && inGui,
-                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT) == GLFW.GLFW_PRESS && inGui,
-                (mc.screen instanceof HotbarGuiScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS) ||
-                        (mc.screen instanceof AbstractContainerScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS),
-
+                GLFW.glfwGetKey(window, GLFW.GLFW_KEY_LEFT)  == GLFW.GLFW_PRESS && inGui,
+                (mc.screen instanceof HotbarGuiScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP)   == GLFW.GLFW_PRESS) ||
+                        (mc.screen instanceof AbstractContainerScreen<?> && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS),
                 (mc.screen instanceof HotbarGuiScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_DOWN) == GLFW.GLFW_PRESS) ||
-                        (mc.screen instanceof AbstractContainerScreen && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP) == GLFW.GLFW_PRESS),
-
-
+                        (mc.screen instanceof AbstractContainerScreen<?> && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_UP)   == GLFW.GLFW_PRESS)
         };
 
+        // Process held‐key auto‐repeat & sound (unchanged)
         for (int i = 0; i < held.length; i++) {
             if (held[i]) {
                 if (skipUntilReleased[i]) continue;
@@ -208,13 +227,11 @@ public class ClientEvents {
                     keyHeld[i] = true;
                     triggerKey(i);
                     keyPressStart[i] = now;
-                    lastRepeat[i] = 0;
-                } else {
-                    long heldTime = now - keyPressStart[i];
-                    if (heldTime >= INITIAL_DELAY_MS && now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
-                        lastRepeat[i] = now;
-                        triggerKey(i);
-                    }
+                    lastRepeat[i]    = 0;
+                } else if (now - keyPressStart[i] >= INITIAL_DELAY_MS
+                        && now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
+                    lastRepeat[i] = now;
+                    triggerKey(i);
                 }
             } else {
                 keyHeld[i] = false;
@@ -222,43 +239,40 @@ public class ClientEvents {
             }
         }
 
+        // Keep the physical selected slot in sync
         HotbarManager.setSlot(mc.player.getInventory().selected);
 
+        // Detect changes to the player inventory when HUD is open
+        if (mc.screen == null && mc.player != null && now - lastSyncCheck > 1000) {
+            lastSyncCheck = now;
+            boolean changed = false;
+            for (int i = 0; i < 9; i++) {
+                ItemStack current = mc.player.getInventory().getItem(i);
+                ItemStack cached  = lastKnownHotbar[i] != null ? lastKnownHotbar[i] : ItemStack.EMPTY;
+                if (!ItemStack.matches(current, cached)) {
+                    changed = true;
+                    break;
+                }
+            }
+            if (changed) {
+                HotbarManager.syncFromGame();
+                for (int i = 0; i < 9; i++) {
+                    lastKnownHotbar[i] = mc.player.getInventory().getItem(i).copy();
+                }
+            }
+        }
+
+        // Sync when opening/closing GUIs or switching between them
         Screen current = mc.screen;
         if (lastScreen != current) {
-            if (
-                    lastScreen instanceof InventoryScreen || lastScreen instanceof HotbarGuiScreen ||
-                            current instanceof HotbarGuiScreen
-            ) {
+            if (lastScreen instanceof InventoryScreen
+                    || lastScreen instanceof HotbarGuiScreen
+                    || current instanceof HotbarGuiScreen) {
                 HotbarManager.syncFromGame();
             }
             lastScreen = current;
         }
-
-        // ✅ Safely detect inventory changes when HUD is open
-        if (mc.screen == null && mc.player != null) {
-            if (now - lastSyncCheck > 1000) {
-                lastSyncCheck = now;
-                boolean changed = false;
-                for (int i = 0; i < 9; i++) {
-                    ItemStack currentStack = mc.player.getInventory().getItem(i);
-                    ItemStack cachedStack = (lastKnownHotbar[i] != null) ? lastKnownHotbar[i] : ItemStack.EMPTY;
-
-                    if (!ItemStack.matches(currentStack, cachedStack)) {
-                        changed = true;
-                        break;
-                    }
-                }
-                if (changed) {
-                    HotbarManager.syncFromGame();
-                    for (int i = 0; i < 9; i++) {
-                        lastKnownHotbar[i] = mc.player.getInventory().getItem(i).copy();
-                    }
-                }
-            }
-        }
     }
-
 
     private static void triggerKey(int index) {
         Minecraft mc = Minecraft.getInstance();
@@ -266,25 +280,21 @@ public class ClientEvents {
         boolean pageChanged  = false;
 
         switch (index) {
-            // ← Hotbar left
             case 0, 6 -> {
                 HotbarManager.syncFromGame();
                 HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
                 playedSound = true;
             }
-            // → Hotbar right
             case 1, 7 -> {
                 HotbarManager.syncFromGame();
                 HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
                 playedSound = true;
             }
-            // ← Page left
             case 2, 5 -> {
                 HotbarManager.syncFromGame();
                 HotbarManager.setPage(HotbarManager.getPage() - 1);
                 pageChanged = true;
             }
-            // → Page right
             case 3, 4 -> {
                 HotbarManager.syncFromGame();
                 HotbarManager.setPage(HotbarManager.getPage() + 1);
@@ -292,12 +302,12 @@ public class ClientEvents {
             }
         }
 
-        // if we switched a page inside the GUI, update the text field
+        // Update the rename‐textbox if we changed page inside the GUI
         if (pageChanged && mc.screen instanceof HotbarGuiScreen gui) {
             gui.updatePageInput();
         }
 
-        // play click or drum
+        // Play sounds if enabled
         if (Config.enableSounds() && mc.player != null && (playedSound || pageChanged)) {
             mc.player.playSound(
                     pageChanged
@@ -308,9 +318,4 @@ public class ClientEvents {
             );
         }
     }
-
-
-
-
-
 }
