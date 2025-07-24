@@ -60,6 +60,23 @@ public class HotbarGuiScreen extends Screen {
         return pageInput != null && pageInput.isFocused();
     }
 
+    /**
+     * @return true if the mouse is currently over the page-list widget.
+     */
+    public boolean isMouseOverPageList(double mouseX, double mouseY) {
+        return this.pageListWidget.isMouseOver(mouseX, mouseY);
+    }
+
+    /**
+     * Give access to the raw list widget dimensions, so we can
+     * skip hotbar nav when hovering it.
+     */
+    public ObjectSelectionList<?> getPageListWidget() {
+        return this.pageListWidget;
+    }
+
+
+
     @Override
     protected void init() {
         super.init();
@@ -124,8 +141,21 @@ public class HotbarGuiScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
-        if (pageInput.isFocused()) return;  // skip navigation when typing
+        // 1) If the page-name box is focused, skip all nav
+        if (pageInput.isFocused()) {
+            return;
+        }
 
+        // 2) If the mouse is over the page-list widget, skip the built-in arrow hotbar nav
+        double rawX = this.minecraft.mouseHandler.xpos();
+        double rawY = this.minecraft.mouseHandler.ypos();
+        int mx = (int)(rawX * this.width  / this.minecraft.getWindow().getScreenWidth());
+        int my = (int)(rawY * this.height / this.minecraft.getWindow().getScreenHeight());
+        if (isMouseOverPageList(mx, my)) {
+            return;
+        }
+
+        // 3) Otherwise, do your existing arrow-key handling exactly as before
         long now = System.currentTimeMillis();
         KeyMapping[] keys = {
                 KeyBindings.ARROW_LEFT,
@@ -153,6 +183,7 @@ public class HotbarGuiScreen extends Screen {
             }
         }
     }
+
 
     private void handleArrowKey(int idx) {
         if (dragging) {

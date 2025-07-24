@@ -31,40 +31,50 @@ public class HudOverlay {
 
     @SubscribeEvent
     public static void renderHotbarLabel(RenderGuiOverlayEvent.Post event) {
+        // only run on the vanilla hotbar overlay
         if (!event.getOverlay().id().equals(VanillaGuiOverlay.HOTBAR.id())) return;
-
         if (!Config.showHudLabel) return;
 
         Minecraft mc = Minecraft.getInstance();
         GuiGraphics graphics = event.getGuiGraphics();
         Font font = mc.font;
 
+        // screen dimensions
         int sw = event.getWindow().getGuiScaledWidth();
         int sh = event.getWindow().getGuiScaledHeight();
-        String label = "Page: " + (HotbarManager.getPage() + 1)
-                + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
 
-        int textWidth = font.width(label);
-        int centerX = (sw - textWidth) / 2;
-        int centerY = sh - 35;
+        // **NEW**: lookup the custom page name
+        String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
+        // build the label: "<CustomPageName>  Hotbar: <1-9>"
+        String label = pageName + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
+
+        int textWidth  = font.width(label);
+        int centerX    = (sw - textWidth) / 2;
+        int centerY    = sh - 35;
 
         if (Config.showHudLabelBackground) {
             float[] bg = Config.hudLabelBackgroundColor;
-            int bgColor = ((int)(bg[3] * 255) << 24) | ((int)(bg[0] * 255) << 16)
-                    | ((int)(bg[1] * 255) << 8) | (int)(bg[2] * 255);
+            int bgColor = ((int)(bg[3] * 255) << 24)
+                    | ((int)(bg[0] * 255) << 16)
+                    | ((int)(bg[1] * 255) <<  8)
+                    |  (int)(bg[2] * 255);
             graphics.fill(centerX - 4, centerY - 2, centerX + textWidth + 4, centerY + 10, bgColor);
         }
 
-        float[] textColor = Config.hudLabelTextColor;
-        int color = ((int)(textColor[3] * 255) << 24) | ((int)(textColor[0] * 255) << 16)
-                | ((int)(textColor[1] * 255) << 8) | (int)(textColor[2] * 255);
+        float[] tc = Config.hudLabelTextColor;
+        int color = ((int)(tc[3] * 255) << 24)
+                | ((int)(tc[0] * 255) << 16)
+                | ((int)(tc[1] * 255) <<  8)
+                |  (int)(tc[2] * 255);
 
         graphics.drawString(font, label, centerX, centerY, color, true);
 
+        // preserve your debug overlay if enabled
         if (Config.showDebugOverlay) {
             drawDebugOverlay(graphics, font, mc, "[DEBUG HUD - HOTBAR CONTEXT]");
         }
     }
+
 
     @SubscribeEvent
     public static void renderGuiLabel(RenderGuiEvent.Post event) {
@@ -85,8 +95,9 @@ public class HudOverlay {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
 
-        String label = "Page: " + (HotbarManager.getPage() + 1)
-                + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
+        // **NEW**: use the custom page name instead of "Page: X"
+        String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
+        String label    = pageName + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
 
         int labelX = container.getGuiLeft() - 10 - font.width(label);
         int labelY = container.getGuiTop() + container.getYSize() - 24;
@@ -94,6 +105,7 @@ public class HudOverlay {
         GuiGraphics graphics = event.getGuiGraphics();
         graphics.drawString(font, label, labelX, labelY, 0xFFFFFF, true);
     }
+
 
     private static void drawDebugOverlay(GuiGraphics graphics, Font font, Minecraft mc, String contextLabel) {
         int x = 4;

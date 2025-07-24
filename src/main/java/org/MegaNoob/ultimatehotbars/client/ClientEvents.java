@@ -60,11 +60,35 @@ public class ClientEvents {
             return;
         }
 
-        int keyCode   = event.getKeyCode();
-        int scanCode  = event.getScanCode();
+        // pull raw key info once
+        int keyCode  = event.getKeyCode();
+        int scanCode = event.getScanCode();
         InputConstants.Key inputKey = InputConstants.getKey(keyCode, scanCode);
 
-        // Inventory key while in our GUI → open actual inventory
+        // ─── NEW: if hovering the page-list, let ↑/↓ change the selected page ─────
+        if (current instanceof HotbarGuiScreen gui2) {
+            double rawX = mc.mouseHandler.xpos();
+            double rawY = mc.mouseHandler.ypos();
+            int mx = (int)(rawX * gui2.width  / mc.getWindow().getScreenWidth());
+            int my = (int)(rawY * gui2.height / mc.getWindow().getScreenHeight());
+            if (gui2.isMouseOverPageList(mx, my) &&
+                    (keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
+                int page    = HotbarManager.getPage();
+                int maxPage = HotbarManager.getPageCount() - 1;
+                int newPage = keyCode == GLFW.GLFW_KEY_DOWN
+                        ? Math.min(page + 1, maxPage)
+                        : Math.max(page - 1, 0);
+                if (newPage != page) {
+                    HotbarManager.syncFromGame();
+                    HotbarManager.setPage(newPage);
+                    gui2.updatePageInput();
+                }
+                event.setCanceled(true);
+                return;
+            }
+        }
+
+        // ─── Inventory key while in our GUI → open actual inventory ───────────────
         if (current instanceof HotbarGuiScreen &&
                 mc.options.keyInventory.isActiveAndMatches(inputKey)) {
             mc.setScreen(new InventoryScreen(mc.player));
@@ -73,7 +97,7 @@ public class ClientEvents {
             return;
         }
 
-        // “Open GUI” key while in our GUI → close it
+        // ─── “Open GUI” key while in our GUI → close it ──────────────────────────
         if (current instanceof HotbarGuiScreen &&
                 KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
             mc.setScreen(null);
@@ -82,13 +106,14 @@ public class ClientEvents {
             return;
         }
 
-        // “Open GUI” key while in a container → switch to our GUI
+        // ─── “Open GUI” key while in a container → switch to our GUI ─────────────
         if (current instanceof AbstractContainerScreen<?> &&
                 KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
             mc.setScreen(new HotbarGuiScreen());
             event.setCanceled(true);
         }
     }
+
 
     @SubscribeEvent
     public static void onKeyInput(InputEvent.Key event) {
@@ -105,12 +130,20 @@ public class ClientEvents {
 
     @SubscribeEvent
     public static void onMouseScrolled(ScreenEvent.MouseScrolled.Pre event) {
-        // Only process scroll when in our GUI
+        // 0) Only deal with our quick-hotbar GUI here
         if (!(event.getScreen() instanceof HotbarGuiScreen gui)) return;
 
-        // If the textbox is focused, ignore scroll paging
+        // 1) If the page-name box is focused, skip paging
         if (gui.isTextFieldFocused()) return;
 
+        // 2) If the mouse is over the page-list widget, let it handle the scroll
+        double mx = event.getMouseX();
+        double my = event.getMouseY();
+        if (gui.isMouseOverPageList(mx, my)) {
+            return;
+        }
+
+        // 3) Now perform hotbar-scrolling exactly as before
         double delta = event.getScrollDelta();
         if (delta == 0) return;
 
@@ -118,13 +151,10 @@ public class ClientEvents {
         int hotbar = HotbarManager.getHotbar();
         int page   = HotbarManager.getPage();
         boolean pageChanged = false;
-
-        // 1) save current edits
-        HotbarManager.syncFromGame();
-
-        // 2) adjust indices, with wrap‐around and page increment/decrement
         int pageCount = HotbarManager.getPageCount();
+
         if (delta < 0) {
+            // scroll down → next slot/page
             hotbar++;
             if (hotbar >= HotbarManager.HOTBARS_PER_PAGE) {
                 hotbar = 0;
@@ -132,6 +162,7 @@ public class ClientEvents {
                 pageChanged = true;
             }
         } else {
+            // scroll up → previous slot/page
             hotbar--;
             if (hotbar < 0) {
                 hotbar = HotbarManager.HOTBARS_PER_PAGE - 1;
@@ -140,11 +171,10 @@ public class ClientEvents {
             }
         }
 
-        // 3) apply new page if changed, then always apply new hotbar
         if (pageChanged) HotbarManager.setPage(page);
         HotbarManager.setHotbar(hotbar, "scroll wheel");
 
-        // 4) sync UI & play sound
+        // sync the GUI text box & play the click/drum sound
         if (mc.screen instanceof HotbarGuiScreen g2) g2.updatePageInput();
         if (Config.enableSounds() && mc.player != null) {
             mc.player.playSound(
@@ -156,8 +186,10 @@ public class ClientEvents {
             );
         }
 
+        // consume the event so it isn’t passed on
         event.setCanceled(true);
     }
+
 
     @SubscribeEvent
     public static void onClientTick(TickEvent.ClientTickEvent event) {
