@@ -76,12 +76,32 @@ public class HotbarManager {
         }
     }
 
-    /** Internal helper: create one new empty page + default name. */
-    private static void addPageInternal() {
-        List<Hotbar> page = new ArrayList<>(HOTBARS_PER_PAGE);
-        for (int i = 0; i < HOTBARS_PER_PAGE; i++) {
+    /** Called by GUI when you hit “+ Hot Bar” on the current page. */
+    public static void addHotbar() {
+        List<Hotbar> page = pages.get(currentPage);
+        if (page.size() < HOTBARS_PER_PAGE) {
             page.add(new Hotbar());
+            saveHotbars();
         }
+    }
+
+    /** Called by GUI when you hit “- Hot Bar” on the current page. */
+    public static void removeHotbar(int pageIndex) {
+        List<Hotbar> page = pages.get(pageIndex);
+        if (page.size() > 1) {
+            page.remove(page.size() - 1);
+            // If we removed the currently‐selected hotbar, clamp it
+            if (currentPage == pageIndex && currentHotbar >= page.size()) {
+                currentHotbar = page.size() - 1;
+            }
+            saveHotbars();
+        }
+    }
+
+    /** INTERNAL: create one new empty page + default name, starting with a single hotbar. */
+    private static void addPageInternal() {
+        List<Hotbar> page = new ArrayList<>();
+        page.add(new Hotbar());
         pages.add(page);
         pageNames.add("Page " + pages.size());
     }
@@ -107,8 +127,14 @@ public class HotbarManager {
         syncToGame();
     }
 
+    /**
+     * Switches to hotbar #hb on the current page (wraps around
+     * the *current* page’s size, not always HOTBARS_PER_PAGE).
+     */
     public static void setHotbar(int hb, String sourceTag) {
-        currentHotbar = ((hb % HOTBARS_PER_PAGE) + HOTBARS_PER_PAGE) % HOTBARS_PER_PAGE;
+        List<Hotbar> page = pages.get(currentPage);
+        int count = page.size();
+        currentHotbar = ((hb % count) + count) % count;
         lastHotbarSet = currentHotbar;
         lastHotbarSource = sourceTag;
         syncToGame();
@@ -173,21 +199,26 @@ public class HotbarManager {
     // Persistence: saveHotbars + loadHotbars now include pageNames
     // ================================================================
 
+    // ================================================================
+// Persistence: saveHotbars + loadHotbars now handle dynamic hotbar counts
+// ================================================================
+
     public static void saveHotbars() {
         try {
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
-            // Save each slot under a flat index
+
+            // save only as many hotbars as each page currently has
             for (int pi = 0; pi < pages.size(); pi++) {
-                for (int hi = 0; hi < HOTBARS_PER_PAGE; hi++) {
+                List<Hotbar> page = pages.get(pi);
+                for (int hi = 0; hi < page.size(); hi++) {
                     int idx = pi * HOTBARS_PER_PAGE + hi;
-                    map.put(String.valueOf(idx),
-                            pages.get(pi).get(hi).serializeNBT());
+                    map.put(String.valueOf(idx), page.get(hi).serializeNBT());
                 }
             }
             root.put("HotbarsMap", map);
 
-            // Save the page names
+            // Save the page names unchanged
             CompoundTag namesTag = new CompoundTag();
             for (int i = 0; i < pageNames.size(); i++) {
                 namesTag.putString(String.valueOf(i), pageNames.get(i));
@@ -197,7 +228,7 @@ public class HotbarManager {
             // Write to disk
             NbtIo.write(root, SAVE_FILE);
 
-            // Debug tracking
+            // Debug tracking unchanged
             lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
@@ -215,29 +246,33 @@ public class HotbarManager {
             if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) return;
             CompoundTag map = root.getCompound("HotbarsMap");
 
-            // Determine how many pages were saved
+            // How many pages were saved?
             int maxIdx = map.getAllKeys().stream()
                     .mapToInt(Integer::parseInt)
                     .max().orElse(-1);
             int pageCount = (maxIdx / HOTBARS_PER_PAGE) + 1;
 
-            // Reinitialize pages & default names
+            // Reinitialize pages & names
             pages.clear();
             pageNames.clear();
             for (int pi = 0; pi < pageCount; pi++) {
-                addPageInternal();
+                pages.add(new ArrayList<>());
+                pageNames.add("Page " + (pi + 1));
             }
 
-            // Deserialize hotbars
+            // Fill in each saved hotbar, growing lists as needed
             for (String key : map.getAllKeys()) {
                 int idx = Integer.parseInt(key);
                 int pi  = idx / HOTBARS_PER_PAGE;
                 int hi  = idx % HOTBARS_PER_PAGE;
-                CompoundTag htag = map.getCompound(key);
-                pages.get(pi).set(hi, Hotbar.deserializeNBT(htag));
+                List<Hotbar> page = pages.get(pi);
+                while (page.size() <= hi) {
+                    page.add(new Hotbar());
+                }
+                page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
             }
 
-            // Load saved page names (if any)
+            // Restore saved page names
             if (root.contains("PageNames", Tag.TAG_COMPOUND)) {
                 CompoundTag namesTag = root.getCompound("PageNames");
                 for (String k : namesTag.getAllKeys()) {
@@ -248,7 +283,7 @@ public class HotbarManager {
                 }
             }
 
-            // Restore last‐known page/hotbar/slot
+            // Restore last‐known state unchanged
             HotbarState.loadState();
             var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
             if (mcPlayer != null) {
@@ -259,6 +294,7 @@ public class HotbarManager {
             e.printStackTrace();
         }
     }
+
 
     // … plus any other getters/setters or utility methods you had …
 }

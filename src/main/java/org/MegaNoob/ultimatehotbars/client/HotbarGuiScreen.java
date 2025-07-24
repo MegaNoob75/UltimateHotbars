@@ -75,14 +75,15 @@ public class HotbarGuiScreen extends Screen {
         return this.pageListWidget;
     }
 
-
-
     @Override
     protected void init() {
         super.init();
+        // ─── Clear out old widgets so we don’t stack ─────────────
+        this.clearWidgets();
+
         int midX = this.width / 2;
 
-        // ─── Single top-center EditBox for renaming pages ─────────
+        // ─── Top-center EditBox for renaming pages ────────────────
         int editW = 100;
         pageInput = new EditBox(this.font, midX - editW/2, 5, editW, 20,
                 Component.literal("Page Name"));
@@ -90,28 +91,46 @@ public class HotbarGuiScreen extends Screen {
         pageInput.setResponder(this::onPageInputChanged);
         addRenderableWidget(pageInput);
 
-        // ─── Config button ───────────────────────────────────────
+        // ─── Config button (bottom-left) ──────────────────────────
         addRenderableWidget(Button.builder(Component.literal("Config"),
                         btn -> this.minecraft.setScreen(new HotbarConfigScreen(this)))
                 .pos(10, this.height - 30).size(80, 20).build());
 
-        // ─── Compute hotbar & list layout ───────────────────────
+        // ─── Compute dynamic hotbar layout ─────────────────────────
         int topY    = pageInput.getY() + pageInput.getHeight() + 6;
         int bottomY = this.height - 30;
-        int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+        List<Hotbar> currentHotbars = HotbarManager.getCurrentPageHotbars();
+        int rows    = currentHotbars.size();
         int rowH    = 22;
         int totalH  = rows * rowH;
         int startY  = topY + ((bottomY - topY) - totalH) / 2;
         int bgW     = 182;
         int baseX   = midX - bgW / 2;
 
-        // Right-side page list
+        // ─── “+ Hot Bar” / “– Hot Bar” buttons (just under hotbars) ─
+        int hbW      = 80, hbH = 20, hbGap = 10;
+        int hbTotalW = hbW * 2 + hbGap;
+        int hbX      = midX - hbTotalW / 2;
+        int hbY      = startY + totalH + 6;
+
+        addRenderableWidget(Button.builder(Component.literal("+ Hot Bar"), b -> {
+                    HotbarManager.addHotbar();
+                    this.minecraft.setScreen(new HotbarGuiScreen());
+                })
+                .pos(hbX, hbY).size(hbW, hbH).build());
+
+        addRenderableWidget(Button.builder(Component.literal("- Hot Bar"), b -> {
+                    HotbarManager.removeHotbar(HotbarManager.getPage());
+                    this.minecraft.setScreen(new HotbarGuiScreen());
+                })
+                .pos(hbX + hbW + hbGap, hbY).size(hbW, hbH).build());
+
+        // ─── Right-side page list (full height) ────────────────────
         int listX   = baseX + bgW + 10;
         int listW   = 100;
-        int listTop = startY;
-        int listBot = startY + totalH;
-
-        // ─── PageListWidget ──────────────────────────────────────
+// span from just below the page-name box down to above the bottom buttons
+        int listTop = pageInput.getY() + pageInput.getHeight() + 6;
+        int listBot = this.height - 30;
         pageListWidget = new PageListWidget(
                 this.minecraft, listW, this.height, listTop, listBot, 20
         );
@@ -119,17 +138,24 @@ public class HotbarGuiScreen extends Screen {
         pageListWidget.updatePages();
         addWidget(pageListWidget);
 
-        // ─── Add / Remove Page buttons ───────────────────────────
-        int btnY      = startY + totalH + 6;
-        int btnW      = 80, btnH = 20, gap = 10;
-        int totalBtnW = btnW * 2 + gap;
-        int btnX      = midX - totalBtnW/2;
-        addRenderableWidget(Button.builder(Component.literal("+ Page"),
-                        b -> { HotbarManager.addPage(); updatePageInput(); })
-                .pos(btnX, btnY).size(btnW, btnH).build());
-        addRenderableWidget(Button.builder(Component.literal("- Page"),
-                        b -> { HotbarManager.removePage(HotbarManager.getPage()); updatePageInput(); })
-                .pos(btnX+btnW+gap, btnY).size(btnW, btnH).build());
+
+        // ─── “+ Page” / “– Page” buttons (bottom-center) ──────────
+        int pgW      = 80, pgH = 20, pgGap = 10;
+        int pgTotalW = pgW * 2 + pgGap;
+        int pgX      = midX - pgTotalW / 2;
+        int pgY      = this.height - 30;  // bottom of screen
+
+        addRenderableWidget(Button.builder(Component.literal("+ Page"), b -> {
+                    HotbarManager.addPage();
+                    this.minecraft.setScreen(new HotbarGuiScreen());
+                })
+                .pos(pgX, pgY).size(pgW, pgH).build());
+
+        addRenderableWidget(Button.builder(Component.literal("- Page"), b -> {
+                    HotbarManager.removePage(HotbarManager.getPage());
+                    this.minecraft.setScreen(new HotbarGuiScreen());
+                })
+                .pos(pgX + pgW + pgGap, pgY).size(pgW, pgH).build());
     }
 
     /** Handler for when the top EditBox changes: renames the current page. */
@@ -146,7 +172,7 @@ public class HotbarGuiScreen extends Screen {
             return;
         }
 
-        // 2) If the mouse is over the page-list widget, skip the built-in arrow hotbar nav
+        // 2) If the mouse is over the page-list widget, skip your arrow‐key hotbar nav
         double rawX = this.minecraft.mouseHandler.xpos();
         double rawY = this.minecraft.mouseHandler.ypos();
         int mx = (int)(rawX * this.width  / this.minecraft.getWindow().getScreenWidth());
@@ -184,7 +210,6 @@ public class HotbarGuiScreen extends Screen {
         }
     }
 
-
     private void handleArrowKey(int idx) {
         if (dragging) {
             int cp = HotbarManager.getPage();
@@ -212,26 +237,37 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (pageInput.isFocused()) {
-            // Let EditBox handle backspace, typing, etc.
-            if (pageInput.keyPressed(keyCode, scanCode, modifiers)) return true;
-            // Allow Escape to close while typing
-            if (keyCode == GLFW.GLFW_KEY_ESCAPE) return super.keyPressed(keyCode, scanCode, modifiers);
-            // Swallow everything else
+        // 1) Page name textfield: let it handle typing, arrows, etc.
+        if (pageInput.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         }
-        // Swallow raw arrows so focus doesn’t jump
-        if (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT ||
-                keyCode == GLFW.GLFW_KEY_UP   || keyCode == GLFW.GLFW_KEY_DOWN) {
+        // 2) Escape to close (when not typing)
+        if (keyCode == GLFW.GLFW_KEY_ESCAPE) {
+            return super.keyPressed(keyCode, scanCode, modifiers);
+        }
+        // 3) Swallow LEFT/RIGHT so focus doesn’t jump around your GUI
+        if (keyCode == GLFW.GLFW_KEY_LEFT || keyCode == GLFW.GLFW_KEY_RIGHT) {
             return true;
         }
-        // Delete clears current hotbar
+        // 4) DELETE to clear current hotbar
         if (keyCode == GLFW.GLFW_KEY_DELETE) {
             HotbarManager.getCurrentHotbar().clear();
             HotbarManager.syncToGame();
-            Minecraft.getInstance().player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
             return true;
         }
+        // 5) If hovering the page-list, let UP/DOWN arrow keys scroll it
+        if ((keyCode == GLFW.GLFW_KEY_UP || keyCode == GLFW.GLFW_KEY_DOWN)) {
+            double rawX = this.minecraft.mouseHandler.xpos();
+            double rawY = this.minecraft.mouseHandler.ypos();
+            int mx = (int)(rawX * this.width  / this.minecraft.getWindow().getScreenWidth());
+            int my = (int)(rawY * this.height / this.minecraft.getWindow().getScreenHeight());
+            if (isMouseOverPageList(mx, my)) {
+                // simulate wheel: UP => delta=+1, DOWN=>-1
+                pageListWidget.mouseScrolled(mx, my, keyCode == GLFW.GLFW_KEY_UP ? 1 : -1);
+                return true;
+            }
+        }
+        // 6) Everything else (including UP/DOWN if not over the list) goes to super
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
@@ -263,7 +299,7 @@ public class HotbarGuiScreen extends Screen {
             }
         }
 
-        // 1) Then let the list widget handle its own scrolling if needed
+        // 1) Then let the list widget handle its own scrolling / selection
         if (pageListWidget.mouseClicked(mx, my, btn)) {
             return true;
         }
@@ -330,22 +366,27 @@ public class HotbarGuiScreen extends Screen {
         return handleClick(mx, my, btn);
     }
 
+    // ─── Your existing handleClick(...) unchanged ─────────────────────────
     private boolean handleClick(double mx, double my, int btn) {
         int topY    = pageInput.getY() + pageInput.getHeight() + 6;
         int bottomY = this.height - 30;
-        int rows    = ultimatehotbars.HOTBARS_PER_PAGE;
+
+        // dynamically get how many hotbar-rows we really have
+        List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
+        int rows    = pageHotbars.size();
         int h       = 22;
         int totalH  = rows * h;
         int startY  = topY + ((bottomY - topY) - totalH) / 2;
+
         int slotW   = (182 - 2) / Hotbar.SLOT_COUNT;
         int totalW  = slotW * Hotbar.SLOT_COUNT;
-        int baseX   = (this.width/2) - totalW/2;
+        int baseX   = (this.width / 2) - totalW / 2;
 
-        // Right-click to open inventory
+        // Right-click to open that row’s inventory
         if (btn == GLFW.GLFW_MOUSE_BUTTON_RIGHT
                 && mx >= baseX && mx < baseX + totalW
                 && my >= startY && my < startY + totalH) {
-            int row = Mth.clamp((int)((my - startY)/h), 0, rows-1);
+            int row = Mth.clamp((int)((my - startY) / h), 0, rows - 1);
             HotbarManager.syncFromGame();
             HotbarManager.setHotbar(row, "mouseClick(RIGHT)");
             HotbarManager.syncToGame();
@@ -354,12 +395,13 @@ public class HotbarGuiScreen extends Screen {
             );
             return true;
         }
-        // Left-click to swap/place
+
+        // Left-click to switch hotbar & slot
         if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT
                 && mx >= baseX && mx < baseX + totalW
                 && my >= startY && my < startY + totalH) {
-            int row = Mth.clamp((int)((my - startY)/h), 0, rows-1);
-            int slot = Mth.clamp((int)((mx - baseX)/slotW), 0, Hotbar.SLOT_COUNT-1);
+            int row  = Mth.clamp((int)((my - startY) / h), 0, rows - 1);
+            int slot = Mth.clamp((int)((mx - baseX)  / slotW), 0, Hotbar.SLOT_COUNT - 1);
             HotbarManager.setHotbar(row, "mouseClick(LEFT)");
             HotbarManager.setSlot(slot);
             HotbarManager.syncFromGame();
@@ -374,23 +416,37 @@ public class HotbarGuiScreen extends Screen {
         return false;
     }
 
+    // ─── Your existing getSlotCoords(...) unchanged ───────────────────
     private int[] getSlotCoords(double mx, double my) {
         int bgW    = 182;
         int cellH  = 22;
         int border = 1;
-        int cellW  = (bgW - border*2)/Hotbar.SLOT_COUNT;
+        int cellW  = (bgW - border*2) / Hotbar.SLOT_COUNT;
         int topY   = pageInput.getY() + pageInput.getHeight() + 6;
         int botY   = this.height - 30;
-        int totalH = ultimatehotbars.HOTBARS_PER_PAGE * cellH;
-        int startY = topY + ((botY - topY) - totalH)/2;
-        int baseX  = (this.width - bgW)/2 + border;
 
-        if (mx < baseX || mx >= baseX + cellW*Hotbar.SLOT_COUNT
+        // dynamically compute height for however many hotbars you really have
+        List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
+        int rows   = pageHotbars.size();
+        int totalH = rows * cellH;
+        int startY = topY + ((botY - topY) - totalH) / 2;
+        int baseX  = (this.width - bgW) / 2 + border;
+
+        // if outside the full grid, bail out
+        if (mx < baseX || mx >= baseX + cellW * Hotbar.SLOT_COUNT
                 || my < startY || my >= startY + totalH) {
             return null;
         }
-        int row  = Mth.clamp((int)((my - startY)/cellH), 0, ultimatehotbars.HOTBARS_PER_PAGE - 1);
-        int slot = Mth.clamp((int)((mx - baseX)/cellW),    0, Hotbar.SLOT_COUNT - 1);
+
+        int row  = (int)((my - startY) / cellH);
+        int slot = (int)((mx - baseX) / cellW);
+
+        // double-check bounds
+        if (row  < 0 || row  >= rows
+                || slot < 0 || slot >= Hotbar.SLOT_COUNT) {
+            return null;
+        }
+
         return new int[]{ row, slot };
     }
 
@@ -527,25 +583,45 @@ public class HotbarGuiScreen extends Screen {
             super(mc, w, h, top, bottom, itemH);
         }
 
+        /** Hide the scrollbar by moving it off-screen */
         protected int getScrollbarPositionX() {
-            return this.getRowLeft() + getRowWidth() - 6;
+            return -100;
         }
 
+        @Override
         public int getRowWidth() {
             return this.width;
         }
 
+        /** Populate entries and always start at the very top. */
         public void updatePages() {
             this.clearEntries();
             var names = HotbarManager.getPageNames();
             for (int i = 0; i < names.size(); i++) {
                 this.addEntry(new Entry(names.get(i), i));
             }
+            // reset scroll so top of list is visible
+            this.setScrollAmount(0);
+            // highlight current page
             int cur = HotbarManager.getPage();
-            this.setSelected(this.children().get(cur));
-            this.ensureVisible(this.children().get(cur));
+            if (cur >= 0 && cur < this.children().size()) {
+                this.setSelected(this.children().get(cur));
+            }
         }
 
+        /** Let the mouse wheel (or up/down arrows when hovered) scroll the list. */
+        @Override
+        public boolean mouseScrolled(double mouseX, double mouseY, double delta) {
+            if (this.isMouseOver(mouseX, mouseY)) {
+                // delegate to default logic which moves one entry per notch
+                return super.mouseScrolled(mouseX, mouseY, delta);
+            }
+            return false;
+        }
+
+        /**
+         * Each entry represents one page. Clicking switches straight away.
+         */
         private class Entry extends ObjectSelectionList.Entry<Entry> {
             private final String name;
             private final int index;
@@ -573,14 +649,17 @@ public class HotbarGuiScreen extends Screen {
 
             @Override
             public boolean mouseClicked(double mx, double my, int btn) {
-                // no longer needed
-                return super.mouseClicked(mx, my, btn);
+                boolean res = super.mouseClicked(mx, my, btn);
+                if (res && btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    HotbarManager.syncFromGame();
+                    HotbarManager.setPage(index);
+                    HotbarGuiScreen.this.updatePageInput();
+                }
+                return res;
             }
 
-            public void updateNarration(net.minecraft.client.gui.narration.NarrationElementOutput ne) {}
-            public net.minecraft.network.chat.Component getNarration() {
-                return Component.literal(name);
-            }
+            @Override public void updateNarration(net.minecraft.client.gui.narration.NarrationElementOutput ne) {}
+            @Override public Component getNarration() { return Component.literal(name); }
         }
     }
 }
