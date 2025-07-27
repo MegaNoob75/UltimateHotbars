@@ -87,9 +87,6 @@ public class HotbarGuiScreen extends Screen {
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
 
-
-
-
     @Override
     public void mouseMoved(double mx, double my) {
         this.lastMouseX = mx;
@@ -104,7 +101,6 @@ public class HotbarGuiScreen extends Screen {
         pageInput.setResponder(this::onPageInputChanged);
         pageListWidget.updatePages();
     }
-
 
     /** @return true if the page-name text box is currently focused. */
     public boolean isTextFieldFocused() {
@@ -173,6 +169,7 @@ public class HotbarGuiScreen extends Screen {
         int delX = btnX + btnWAdj + gap;
         int labelX = delX + delW + gap;
         int baseX = labelX + labelW;
+        // KEY: listX must be to the RIGHT of hotbars!
         int listX = baseX + bgW + gap;
 
         // --- Top Y coordinate for everything ---
@@ -208,8 +205,20 @@ public class HotbarGuiScreen extends Screen {
         // --- PAGE LIST ---
         int listTop = pageInput.getY() + pageInput.getHeight() + 6;
         int listBot = this.height - 40;
-        pageListWidget = new PageListWidget(this, this.minecraft, this.font, pagelistWAdj, this.height, listTop, listBot, 20);
-        pageListWidget.setLeftPos(listX);
+        int pageListHeight = listBot - listTop;
+
+        // The most important fix: the widget is ONLY in its own column!
+        pageListWidget = new PageListWidget(
+                this,
+                this.minecraft,
+                this.font,
+                pagelistWAdj,
+                pageListHeight,
+                listTop,
+                listBot,
+                20
+        );
+        pageListWidget.setLeftPos(listX); // position at the right of hotbars, never overlapping
         addWidget(pageListWidget);
         pageListWidget.updatePages();
 
@@ -220,10 +229,10 @@ public class HotbarGuiScreen extends Screen {
         this._renderBaseX = baseX;
         this._renderListX = listX;
         this._renderBtnW = btnWAdj;
+        System.out.println("Screen width: " + this.width + "  baseX=" + _renderBaseX + "  bgW=182  listX=" + _renderListX + "  pageListWAdj=" + pagelistWAdj);
+        System.out.println("Page list covers X: " + _renderListX + " to " + (_renderListX + pagelistWAdj));
+        System.out.println("Hotbars cover X: " + _renderBaseX + " to " + (_renderBaseX + 182));
     }
-
-
-
 
     private void onPageInputChanged(String newName) {
         HotbarManager.renamePage(HotbarManager.getPage(), newName);
@@ -233,22 +242,26 @@ public class HotbarGuiScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
-
     }
-
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        // First, handle scrolling the page list if mouse is over it
+        // --- PAGE LIST SCROLL (change pages)
         if (this.pageListWidget.isMouseOver(mx, my)) {
             int curr = HotbarManager.getPage();
             int cnt = HotbarManager.getPageCount();
             int dir = delta > 0 ? -1 : 1;
             int wrapped = ((curr + dir) % cnt + cnt) % cnt;
 
+            // --- CRITICAL: Save current hotbar and page before switching!
+            HotbarManager.syncFromGame();
+            HotbarManager.saveHotbars();
+
             HotbarManager.setPage(wrapped, 0);  // handles both page and hotbar now
-            updatePageInput();                  // updates text input + widget
+
             HotbarManager.syncToGame();
+
+            updatePageInput(); // updates text input + widget
 
             if (Config.enableSounds() && Minecraft.getInstance().player != null) {
                 Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
@@ -261,176 +274,193 @@ public class HotbarGuiScreen extends Screen {
         return true;
     }
 
-
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        if (pageInput.isMouseOver(mx, my)) {
-            pageInput.setFocused(true);
-        } else {
-            pageInput.setFocused(false);
+        // Always update text box focus
+        pageInput.setFocused(pageInput.isMouseOver(mx, my));
+
+        // --- Check if clicking a hotbar slot ---
+        int[] slotCoords = getSlotCoords(mx, my);
+        boolean clickedSlot = slotCoords != null && btn == GLFW.GLFW_MOUSE_BUTTON_LEFT;
+        if (clickedSlot) {
+            // Prepare drag state
+            potentialDrag = true;
+            dragging = false;
+            sourcePage = HotbarManager.getPage();
+            sourceRow = slotCoords[0];
+            sourceSlotIdx = slotCoords[1];
+            sourceHotbar = HotbarManager.getCurrentPageHotbars().get(sourceRow);
+            pressX = mx;
+            pressY = my;
+            System.out.println("mouseClicked at X=" + mx + " Y=" + my + " btn=" + btn);
+            System.out.println("getSlotCoords returned: " + (slotCoords == null ? "null" : (slotCoords[0] + "," + slotCoords[1])));
+            return true;
         }
+
+        // --- Otherwise, pass to widgets (page list, buttons, etc) ---
+        // Make sure you do NOT set potentialDrag for page list or other widgets!
         return super.mouseClicked(mx, my, btn);
     }
 
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        // Only start drag if started on a slot
         if (potentialDrag && !dragging) {
             if (Math.hypot(mx - pressX, my - pressY) >= DRAG_THRESHOLD) {
                 dragging = true;
-                draggedStack = sourceHotbar.getSlot(sourceSlotIdx).copy();
-                sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
+                ItemStack stack = sourceHotbar.getSlot(sourceSlotIdx);
+                if (!stack.isEmpty()) {
+                    draggedStack = stack.copy();
+                    sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
+                } else {
+                    potentialDrag = false;
+                    dragging = false;
+                }
             }
+            return dragging;
         }
-        return dragging || super.mouseDragged(mx, my, btn, dx, dy);
+        return super.mouseDragged(mx, my, btn, dx, dy);
     }
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
         if (dragging) {
-            // Recompute layout to match init()/render()
-            int topY    = pageInput.getY() + pageInput.getHeight() + 6;
-            int bottomY = this.height - 30;
+            int bgW = 182, rowH = 22;
+            int baseX = this._renderBaseX;
+            int topY = pageInput.getY() + pageInput.getHeight() + 10;
             List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
-            int rows    = pageHotbars.size();
-            int rowH    = 22;
-            int totalH  = rows * rowH;
-            int startY  = topY + ((bottomY - topY) - totalH) / 2;
-            int midX    = this.width / 2;
-            int bgW     = 182;
-            int border  = 1;
-            int baseX   = midX - bgW/2 + border;
-
-            // Delete-zone coordinates (50px wide, as drawn)
+            int visibleRows = Math.max(1, (this.height - topY - 30) / rowH);
             int delW = 50;
-            int delX = baseX - delW - 15;  // ← 15px gap to the left of hotbar numbers
-            int delY = startY - 3;
-
-            // 1) Delete drop
-            if (mx >= delX && mx < delX + delW
-                    && my >= delY && my < delY + totalH) {
-                Minecraft.getInstance()
-                        .player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
-                dragging      = false;
-                potentialDrag = false;
-                draggedStack  = ItemStack.EMPTY;
-                HotbarManager.saveHotbars();
-                return true;
-            }
-
-            // 2) Swap/drop into hotbar slots
+            int delH = Math.max(rowH, Math.min(pageHotbars.size(), visibleRows) * rowH);
+            int delX = this._renderDelX;
+            int delY = topY - 3;
             int[] coords = getSlotCoords(mx, my);
-            int dropPg = HotbarManager.getPage();
-            if (coords != null && dropPg == sourcePage
-                    && coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
-                sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-            } else if (coords != null) {
-                Hotbar target   = HotbarManager.getCurrentPageHotbars().get(coords[0]);
-                ItemStack exist = target.getSlot(coords[1]);
-                target.setSlot(coords[1], draggedStack);
-                sourceHotbar.setSlot(sourceSlotIdx, exist);
-            } else {
+
+            System.out.println("[UltimateHotbars] mouseReleased: mx=" + mx + " my=" + my +
+                    " | delX=" + delX + " delY=" + delY + " delW=" + delW + " delH=" + delH +
+                    " | coords=" + (coords == null ? "null" : coords[0] + "," + coords[1]));
+
+            boolean handled = false;
+
+            // 1. Drop in delete zone: Remove item
+            if (mx >= delX && mx < delX + delW && my >= delY && my < delY + delH) {
+                System.out.println("[UltimateHotbars] DELETE zone, item removed");
+                sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
+                Minecraft.getInstance().player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
+                handled = true;
+            }
+            // 2. Dropped on a slot
+            else if (coords != null) {
+                // Check if dropped on original source slot
+                if (coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
+                    System.out.println("[UltimateHotbars] DROPPED ON SAME SLOT - no-op, restore");
+                    sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
+                    handled = true;
+                } else {
+                    System.out.println("[UltimateHotbars] SWAP zone, swapped items");
+                    Hotbar target = HotbarManager.getCurrentPageHotbars().get(coords[0]);
+                    ItemStack exist = target.getSlot(coords[1]);
+                    target.setSlot(coords[1], draggedStack);
+                    sourceHotbar.setSlot(sourceSlotIdx, exist);
+                    Minecraft.getInstance().player.playSound(SoundEvents.ITEM_PICKUP, 1.0F, 0.8F);
+                    handled = true;
+                }
+            }
+            // 3. Dropped anywhere else (not a slot, not delete): always revert!
+            if (!handled) {
+                System.out.println("[UltimateHotbars] REVERT, restored original item");
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
 
             HotbarManager.saveHotbars();
             HotbarManager.syncToGame();
-            Minecraft.getInstance()
-                    .player.playSound(SoundEvents.ITEM_PICKUP, 1.0F, 0.8F);
-            dragging      = false;
+
+            dragging = false;
             potentialDrag = false;
-            draggedStack  = ItemStack.EMPTY;
+            draggedStack = ItemStack.EMPTY;
             return true;
         }
-
-        // 3) No drag in progress → fall back to clicks
-        potentialDrag = false;
-        return handleClick(mx, my, btn);
+        if (potentialDrag && !dragging) {
+            potentialDrag = false;
+            return handleClick(mx, my, btn);
+        }
+        return super.mouseReleased(mx, my, btn);
     }
 
 
-    // ─── Your existing handleClick(...) unchanged ─────────────────────────
+
+    /**
+     * Handles clicking on a hotbar slot.
+     * Selects the correct hotbar and slot, updates both the virtual and actual inventory,
+     * and (optionally) closes the GUI.
+     */
     private boolean handleClick(double mx, double my, int btn) {
-        int topY    = pageInput.getY() + pageInput.getHeight() + 6;
-        int bottomY = this.height - 30;
+        // Calculate layout constants (must match render() and getSlotCoords)
+        int bgW = 182, rowH = 22, border = 1;
+        int baseX = this._renderBaseX;
+        int topY = pageInput.getY() + pageInput.getHeight() + 10;
 
-        // dynamically get how many hotbar-rows we really have
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
-        int rows    = pageHotbars.size();
-        int h       = 22;
-        int totalH  = rows * h;
-        int startY  = topY + ((bottomY - topY) - totalH) / 2;
+        int visibleRows = Math.max(1, (this.height - topY - 30) / rowH);
+        int totalRows = pageHotbars.size();
 
-        int slotW   = (182 - 2) / Hotbar.SLOT_COUNT;
-        int totalW  = slotW * Hotbar.SLOT_COUNT;
-        int baseX   = (this.width / 2) - totalW / 2;
+        // Loop through only visible rows and columns, match math in render/getSlotCoords
+        for (int vis = 0; vis < visibleRows && (hotbarScrollRow + vis) < totalRows; vis++) {
+            int row = hotbarScrollRow + vis;
+            int y = topY + vis * rowH;
+            int cellW = (bgW - 2) / Hotbar.SLOT_COUNT;
 
-        // Right-click to open that row’s inventory
-        if (btn == GLFW.GLFW_MOUSE_BUTTON_RIGHT
-                && mx >= baseX && mx < baseX + totalW
-                && my >= startY && my < startY + totalH) {
-            int row = Mth.clamp((int)((my - startY) / h), 0, rows - 1);
-            HotbarManager.syncFromGame();
-            HotbarManager.setHotbar(row, "mouseClick(RIGHT)");
-            HotbarManager.syncToGame();
-            Minecraft.getInstance().setScreen(
-                    new InventoryScreen(Minecraft.getInstance().player)
-            );
-            return true;
+            for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
+                int x = baseX + s * cellW;
+                // Check if mouse is over this slot
+                if (mx >= x && mx < x + cellW && my >= y && my < y + rowH) {
+                    if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                        // Update virtual hotbar and slot
+                        HotbarManager.setHotbar(row, "mouseClick(LEFT)");
+                        HotbarManager.setSlot(s);
+                        HotbarManager.syncFromGame();
+                        // Update player's inventory slot selection
+                        Minecraft mc = Minecraft.getInstance();
+                        mc.player.getInventory().selected = s;
+                        mc.player.connection.send(new ServerboundSetCarriedItemPacket(s));
+                        HotbarManager.syncToGame();
+                        // Optionally close the GUI (uncomment next line if desired)
+                        // mc.setScreen(null);
+                        return true;
+                    }
+                }
+            }
         }
-
-        // Left-click to switch hotbar & slot
-        if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT
-                && mx >= baseX && mx < baseX + totalW
-                && my >= startY && my < startY + totalH) {
-            int row  = Mth.clamp((int)((my - startY) / h), 0, rows - 1);
-            int slot = Mth.clamp((int)((mx - baseX)  / slotW), 0, Hotbar.SLOT_COUNT - 1);
-            HotbarManager.setHotbar(row, "mouseClick(LEFT)");
-            HotbarManager.setSlot(slot);
-            HotbarManager.syncFromGame();
-            Minecraft mc = Minecraft.getInstance();
-            mc.player.getInventory().selected = slot;
-            mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
-            HotbarManager.syncToGame();
-            mc.setScreen(null);
-            return true;
-        }
-
         return false;
     }
 
-    // ─── Your existing getSlotCoords(...) unchanged ───────────────────
+
     private int[] getSlotCoords(double mx, double my) {
-        int bgW    = 182;
-        int cellH  = 22;
-        int border = 1;
-        int cellW  = (bgW - border*2) / Hotbar.SLOT_COUNT;
-        int topY   = pageInput.getY() + pageInput.getHeight() + 6;
-        int botY   = this.height - 30;
-
-        // dynamically compute height for however many hotbars you really have
+        int bgW = 182, bgH = 22, border = 1;
+        int cellW = (bgW - border * 2) / Hotbar.SLOT_COUNT;
+        int baseX = this._renderBaseX;
+        int topY = pageInput.getY() + pageInput.getHeight() + 10;
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
-        int rows   = pageHotbars.size();
-        int totalH = rows * cellH;
-        int startY = topY + ((botY - topY) - totalH) / 2;
-        int baseX  = (this.width - bgW) / 2 + border;
+        int totalRows = pageHotbars.size();
 
-        // if outside the full grid, bail out
-        if (mx < baseX || mx >= baseX + cellW * Hotbar.SLOT_COUNT
-                || my < startY || my >= startY + totalH) {
-            return null;
+        int availableHeight = this.height - topY - 30;
+        int visibleRows = Math.max(1, availableHeight / bgH);
+
+        for (int vis = 0; vis < visibleRows && (hotbarScrollRow + vis) < totalRows; vis++) {
+            int row = hotbarScrollRow + vis;
+            int y = topY + vis * bgH;
+            int slotBoxY = y - 3; // exactly matches where you draw!
+            for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
+                int x = baseX + s * cellW;
+                if (mx >= x && mx < x + cellW && my >= slotBoxY && my < slotBoxY + bgH) {
+                    return new int[]{row, s};
+                }
+            }
         }
-
-        int row  = (int)((my - startY) / cellH);
-        int slot = (int)((mx - baseX) / cellW);
-
-        // double-check bounds
-        if (row  < 0 || row  >= rows
-                || slot < 0 || slot >= Hotbar.SLOT_COUNT) {
-            return null;
-        }
-
-        return new int[]{ row, slot };
+        return null;
     }
+
+
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTicks) {
@@ -552,15 +582,29 @@ public class HotbarGuiScreen extends Screen {
     }
 
     /**
-     * Moves the selected hotbar up or down, wrapping at the ends, and
-     * scrolls the view so the selected hotbar is always visible.
+     * Handles moving the selected hotbar up or down (arrow keys or scroll).
+     * - Always saves the current hotbar from the player inventory (even if not switching).
+     * - Only allows switching if two or more hotbars exist.
+     * - Prevents unwanted inventory overwrites when only one hotbar is present.
+     *
      * @param direction -1 for up, +1 for down
      */
     private void moveHotbarSelection(int direction) {
-
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int totalRows = pageHotbars.size();
-        if (totalRows == 0) return; // Nothing to select!
+
+        // --- Always sync any player inventory changes into the hotbar and save ---
+        // This ensures edits (drag, drop, swap, etc) are never lost,
+        // even if the user tries to switch hotbar with only one present.
+        HotbarManager.syncFromGame();    // Copy current player inventory → current hotbar
+        HotbarManager.saveHotbars();     // Save to disk
+
+        // --- Only switch if there are at least two hotbars ---
+        // If only one hotbar, don't allow switching or overwrite player inventory.
+        if (totalRows <= 1) {
+            // Nothing to switch to, so just return.
+            return;
+        }
 
         int bgW = 182, rowH = 22;
         int topY = pageInput.getY() + pageInput.getHeight() + 10;
@@ -568,24 +612,28 @@ public class HotbarGuiScreen extends Screen {
         int visibleRows = Math.max(1, availableHeight / rowH);
 
         int selHb = HotbarManager.getHotbar();
-
-        // Wrap the selected index so -1 goes to last, +1 past last goes to 0
         int newSel = (selHb + direction + totalRows) % totalRows;
+
+        // --- Actually switch hotbars ---
         HotbarManager.setHotbar(newSel, "arrow");
 
-        // Scroll so selected row is always visible
+        // --- Now update the player inventory with the new hotbar ---
+        HotbarManager.syncToGame(); // Copy current virtual hotbar → player inventory
+
+        // --- Maintain scroll position so new selection is always visible ---
         if (newSel < hotbarScrollRow) {
             hotbarScrollRow = newSel;
         } else if (newSel >= hotbarScrollRow + visibleRows) {
             hotbarScrollRow = newSel - visibleRows + 1;
         }
 
-        // Clamp scroll offset to valid range (never negative, never empty space at bottom)
+        // --- Clamp scroll offset to valid range ---
         hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, totalRows - visibleRows));
+
+        // --- Play sound if enabled ---
         if (Config.enableSounds() && Minecraft.getInstance().player != null) {
             Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f);
         }
-
     }
 
 
@@ -596,14 +644,14 @@ public class HotbarGuiScreen extends Screen {
             sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             dragging = false; potentialDrag = false; draggedStack = ItemStack.EMPTY;
         }
+        HotbarManager.syncFromGame(); // <-- flush inventory to hotbar data
         HotbarManager.saveHotbars();
         HotbarManager.syncToGame();
         super.removed();
     }
 
+
     @Override public boolean shouldCloseOnEsc() { return true; }
     @Override public boolean isPauseScreen()    { return false; }
 
-
 }
-

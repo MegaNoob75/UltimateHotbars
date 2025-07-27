@@ -83,14 +83,22 @@ public class PageListWidget extends ObjectSelectionList<PageListWidget.Entry> {
 
         @Override
         public boolean mouseClicked(double mx, double my, int btn) {
-            boolean res = super.mouseClicked(mx, my, btn);
-            if (res && btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+            if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                // --- CRITICAL: Save everything before switching ---
                 HotbarManager.syncFromGame();
+                HotbarManager.saveHotbars();
+
                 HotbarManager.setPage(index, 0);
+
+                HotbarManager.syncToGame();
+
                 parent.updatePageInput();
+                return true;
             }
-            return res;
+            return false;
         }
+
+
 
         @Override public void updateNarration(net.minecraft.client.gui.narration.NarrationElementOutput n) {}
         @Override public Component getNarration() {

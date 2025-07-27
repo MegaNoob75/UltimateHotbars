@@ -1,4 +1,3 @@
-// src/main/java/com/yourname/ultimatehotbars/Hotbar.java
 package org.MegaNoob.ultimatehotbars;
 
 import net.minecraft.nbt.CompoundTag;
