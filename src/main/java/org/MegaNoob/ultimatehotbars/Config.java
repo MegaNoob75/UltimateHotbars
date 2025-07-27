@@ -60,6 +60,8 @@ public class Config {
         hoverBorderColor = toFloatArray(HOVER_BORDER_COLOR.get());
     }
 
+    public static int maxHotbarsPerPage = 20; // default
+
     public static boolean enableSounds() {
         return enableSounds;
     }
@@ -132,5 +134,14 @@ public class Config {
         HUD_LABEL_TEXT_COLOR.set(List.of((double)hudLabelTextColor[0], (double)hudLabelTextColor[1], (double)hudLabelTextColor[2], (double)hudLabelTextColor[3]));
         // sync new hover-border color
         HOVER_BORDER_COLOR.set(List.of((double)hoverBorderColor[0], (double)hoverBorderColor[1], (double)hoverBorderColor[2], (double)hoverBorderColor[3]));
+    }
+
+    public static void setMaxHotbarsPerPage(int value) {
+        maxHotbarsPerPage = value;
+        save(); // your config save logic
+    }
+
+    public static int getMaxHotbarsPerPage() {
+        return maxHotbarsPerPage;
     }
 }

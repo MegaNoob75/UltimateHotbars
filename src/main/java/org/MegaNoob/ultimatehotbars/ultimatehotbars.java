@@ -16,7 +16,6 @@ import org.MegaNoob.ultimatehotbars.HotbarManager;
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {
     public static final String MODID = "ultimatehotbars";
-    public static final int HOTBARS_PER_PAGE = 10;  // how many hotbars per page
     public static boolean DEBUG_MODE = false;
 
     public ultimatehotbars(final FMLJavaModLoadingContext context) {

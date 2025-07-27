@@ -51,6 +51,27 @@ public class HotbarConfigScreen extends Screen {
                             Config.syncToForgeConfig();
                         }));
         y += 24;
+
+        // Max Hotbars Per Page slider
+        generalWidgets.add(new AbstractSliderButton(width / 2 - 100, y, 200, 20,
+                Component.literal("Max Hotbars Per Page: " + Config.getMaxHotbarsPerPage()),
+                (Config.getMaxHotbarsPerPage() - 1) / 99.0 // normalized: 0.0 to 1.0
+        ) {
+            @Override
+            protected void updateMessage() {
+                int value = (int) (1 + this.value * 99); // 1-100
+                setMessage(Component.literal("Max Hotbars Per Page: " + value));
+            }
+            @Override
+            protected void applyValue() {
+                int value = (int) (1 + this.value * 99); // 1-100
+                Config.setMaxHotbarsPerPage(value);
+                updateMessage();
+                Config.syncToForgeConfig();
+            }
+        });
+        y += 24;
+
         generalWidgets.add(CycleButton.onOffBuilder(Config.showDebugOverlay())
                 .create(width / 2 - 100, y, 200, 20, Component.literal("Show Debug Overlay"),
                         (btn, val) -> {
@@ -71,6 +92,7 @@ public class HotbarConfigScreen extends Screen {
                             Config.showHudLabelBackground = val;
                             Config.syncToForgeConfig();
                         }));
+
 
         // Color sliders
         addColorSliders(colorWidgets, "Highlighted Hotbar", Config.highlightColor(), arr -> {
@@ -339,4 +361,5 @@ public class HotbarConfigScreen extends Screen {
         Config.syncToForgeConfig();
         this.minecraft.setScreen(parent);
     }
+
 }

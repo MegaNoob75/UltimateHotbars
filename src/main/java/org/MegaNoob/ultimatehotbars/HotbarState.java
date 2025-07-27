@@ -33,22 +33,22 @@ public class HotbarState {
                 if (tag.contains("page")) {
                     int savedPage = tag.getInt("page");
                     int maxPages = HotbarManager.getPageCount();
+                    int savedHotbar = tag.getInt("hotbar");  // fix capitalization
+
                     if (savedPage >= 0 && savedPage < maxPages) {
-                        HotbarManager.setPage(savedPage);
+                        HotbarManager.setPage(savedPage, savedHotbar);
                     }
                 }
 
-                // Hotbar index (wrapped internally) and slot
-                HotbarManager.setHotbar(tag.getInt("hotbar"), "HotbarState.loadState");
                 if (tag.contains("slot")) {
                     HotbarManager.setSlot(tag.getInt("slot"));
                 }
 
-                // Force reapply to client & server
                 HotbarManager.syncToGame();
             }
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
 }
