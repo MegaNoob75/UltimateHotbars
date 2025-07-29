@@ -16,9 +16,9 @@ import java.util.List;
 public class HotbarManager {
 
     // Holds the virtual hotbars: pages.get(pageIndex).get(hotbarIndex)
-    private static final List<List<Hotbar>> pages = new ArrayList<>();
+    private static final List<List<Hotbar>> pages     = new ArrayList<>();
     // Holds the display names for each page
-    private static final List<String> pageNames = new ArrayList<>();
+    private static final List<String>       pageNames = new ArrayList<>();
 
     private static int currentPage   = 0;
     private static int currentHotbar = 0;
@@ -27,17 +27,20 @@ public class HotbarManager {
     private static final File SAVE_FILE =
             FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars_hotbars.dat").toFile();
 
-    // Debug tracking (unchanged) ...
+    // Debug tracking
     public static String lastHotbarSource = "";
-    public static int lastHotbarSet = -1;
-    public static int lastSavedHotbar = -1;
-    public static int lastSavedPage = -1;
-    public static int lastSavedSlot = -1;
+    public static int    lastHotbarSet    = -1;
+    public static int    lastSavedHotbar  = -1;
+    public static int    lastSavedPage    = -1;
+    public static int    lastSavedSlot    = -1;
 
     static {
-        // Initialize with a single default page
-        addPageInternal();
-        // You can call loadHotbars() explicitly on login to overwrite these defaults
+        // On class load, either load existing pages, or create one default page
+        if (SAVE_FILE.exists()) {
+            loadHotbars();
+        } else {
+            addPageInternal();
+        }
     }
 
     // ================================================================
@@ -54,9 +57,35 @@ public class HotbarManager {
         return new ArrayList<>(pageNames);
     }
 
+    /**
+     * Finds “Page N” where N is the smallest positive integer not yet used.
+     */
+    public static String getNextAvailablePageName() {
+        int index = 1;
+        while (pageNames.contains("Page " + index)) {
+            index++;
+        }
+        return "Page " + index;
+    }
+
     /** Adds a new empty page at the end, default named "Page N". */
     public static void addPage() {
         addPageInternal();
+    }
+
+    /** INTERNAL: create one new empty page + default name, starting with a single hotbar. */
+    private static void addPageInternal() {
+        // Compute unique name
+        String newPageName = getNextAvailablePageName();
+        // Add to names list
+        pageNames.add(newPageName);
+        // Create a new page with one Hotbar
+        List<Hotbar> newPage = new ArrayList<>();
+        newPage.add(new Hotbar());
+        // Add to pages
+        pages.add(newPage);
+        // Persist
+        saveHotbars();
     }
 
     /** Removes the page at index (except index=0), then rewraps if needed. */
@@ -70,14 +99,27 @@ public class HotbarManager {
         clampHotbarIndex();
     }
 
-    /** Renames the page at idx to the given newName. */
-    public static void renamePage(int idx, String newName) {
-        if (idx >= 0 && idx < pageNames.size()) {
-            pageNames.set(idx, newName);
+    /**
+     * Renames the page at idx to the given newName.
+     * Returns true if successful, false if newName is empty or duplicate.
+     */
+    public static boolean renamePage(int idx, String newName) {
+        newName = newName.trim();
+        if (newName.isEmpty() || pageNames.contains(newName)) {
+            return false;
         }
+        pageNames.set(idx, newName);
+        saveHotbars();
+        return true;
     }
 
-    /** Adds a new hotbar to the currently selected page. */
+    // ================================================================
+    // Hotbar manipulation
+    // ================================================================
+
+    /**
+     * Adds one new empty hotbar to the current page, up to the configured max.
+     */
     public static void addHotbarToCurrentPage() {
         List<Hotbar> page = pages.get(currentPage);
         if (page.size() < Config.getMaxHotbarsPerPage()) {
@@ -87,47 +129,28 @@ public class HotbarManager {
         }
     }
 
-    /** Called by GUI when you hit “- Hot Bar” on the current page. */
-    public static void removeHotbar(int pageIndex) {
-        if (pageIndex < 0 || pageIndex >= pages.size()) return;
-
-        List<Hotbar> page = pages.get(pageIndex);
+    /**
+     * Removes the currently selected hotbar from the current page.
+     * Never removes the last remaining hotbar on the page.
+     */
+    public static void removeSelectedHotbarFromCurrentPage() {
+        List<Hotbar> page = pages.get(currentPage);
         if (page.size() <= 1) {
-            // Never allow removing the last hotbar
             return;
         }
-
-        page.remove(page.size() - 1);
-
-        // Clamp current hotbar if needed
-        if (currentPage == pageIndex && currentHotbar >= page.size()) {
+        page.remove(currentHotbar);
+        if (currentHotbar >= page.size()) {
             currentHotbar = page.size() - 1;
         }
         clampHotbarIndex();
         saveHotbars();
+        syncToGame();
     }
-
-    public static void removeLastHotbarFromCurrentPage() {
-        removeHotbar(currentPage);
-    }
-
-    /** INTERNAL: create one new empty page + default name, starting with a single hotbar. */
-    private static void addPageInternal() {
-        List<Hotbar> page = new ArrayList<>();
-        page.add(new Hotbar());
-        pages.add(page);
-        pageNames.add("Page " + pages.size());
-    }
-
-    // ================================================================
-    // Accessors for current selection
-    // ================================================================
 
     /** Defensive: always returns a valid hotbar. */
     public static Hotbar getCurrentHotbar() {
         List<Hotbar> page = pages.get(currentPage);
         int idx = currentHotbar;
-        // Clamp index to safe range
         if (page.isEmpty()) {
             page.add(new Hotbar());
             idx = 0;
@@ -150,32 +173,25 @@ public class HotbarManager {
         currentPage = Mth.clamp(page, 0, pages.size() - 1);
         List<Hotbar> hotbars = pages.get(currentPage);
         currentHotbar = Mth.clamp(resetHotbar, 0, hotbars.size() - 1);
-
-        lastHotbarSet = currentHotbar;
+        lastHotbarSet   = currentHotbar;
         lastHotbarSource = "page switch";
         clampHotbarIndex();
-        syncToGame();  // triggers sync AND updates slot
+        syncToGame();
     }
 
     /**
-     * Switch to the given hotbar index (hb),
-     * wrapping within the current page only.
+     * Switch to the given hotbar index (hb), wrapping within the current page only.
      */
     public static void setHotbar(int hb, String sourceTag) {
-        // Block unwanted overwrite right after page change
         if (lastHotbarSource.equals("arrow page switch") && !"arrow page switch".equals(sourceTag)) {
             System.out.println("Blocked setHotbar(" + hb + ") from " + sourceTag);
             return;
         }
-
         List<Hotbar> hotbars = pages.get(currentPage);
         int count = hotbars.size();
         currentHotbar = ((hb % count) + count) % count;
-
         lastHotbarSet    = currentHotbar;
         lastHotbarSource = sourceTag;
-
-        // Only sync if not triggered by page switch
         if (!"arrow page switch".equals(sourceTag) && !"page switch".equals(sourceTag)) {
             clampHotbarIndex();
             syncToGame();
@@ -195,13 +211,9 @@ public class HotbarManager {
     }
 
     // ================================================================
-    // Syncing to Game & Networking (unchanged)
+    // Syncing to Game & Networking
     // ================================================================
 
-    /**
-     * Overwrites the player's in-game hotbar slots (0–8) from the virtual hotbar
-     * and sends them to the server.
-     */
     public static void syncToGame() {
         clampHotbarIndex();
         var mc = net.minecraft.client.Minecraft.getInstance();
@@ -212,7 +224,7 @@ public class HotbarManager {
             mc.player.getInventory().setItem(i, ItemStack.EMPTY);
         }
 
-        // 2) Populate it from our virtual current hotbar
+        // 2) Populate from our virtual hotbar
         Hotbar vb = getCurrentHotbar();
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             ItemStack s = vb.getSlot(i);
@@ -221,17 +233,13 @@ public class HotbarManager {
             }
         }
 
-        // 3) Send to server so it can update the player's server-side inventory
+        // 3) Send to server
         ItemStack[] stacks = new ItemStack[Hotbar.SLOT_COUNT];
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             stacks[i] = vb.getSlot(i).copy();
         }
         PacketHandler.CHANNEL.sendToServer(
-                new SyncHotbarPacket(
-                        getPage(),
-                        getHotbar(),
-                        stacks            // <-- only three arguments
-                )
+                new SyncHotbarPacket(getPage(), getHotbar(), stacks)
         );
     }
 
@@ -247,7 +255,7 @@ public class HotbarManager {
     }
 
     // ================================================================
-    // Persistence: saveHotbars + loadHotbars now include pageNames
+    // Persistence: saveHotbars + loadHotbars include pageNames
     // ================================================================
 
     public static void saveHotbars() {
@@ -255,7 +263,7 @@ public class HotbarManager {
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
 
-            // save only as many hotbars as each page currently has
+            // Save each hotbar slot
             for (int pi = 0; pi < pages.size(); pi++) {
                 List<Hotbar> page = pages.get(pi);
                 for (int hi = 0; hi < page.size(); hi++) {
@@ -265,17 +273,16 @@ public class HotbarManager {
             }
             root.put("HotbarsMap", map);
 
-            // Save the page names unchanged
+            // Save pageNames
             CompoundTag namesTag = new CompoundTag();
             for (int i = 0; i < pageNames.size(); i++) {
                 namesTag.putString(String.valueOf(i), pageNames.get(i));
             }
             root.put("PageNames", namesTag);
 
-            // Write to disk
             NbtIo.write(root, SAVE_FILE);
 
-            // Debug tracking unchanged
+            // Debug tracking
             lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
@@ -293,10 +300,8 @@ public class HotbarManager {
             if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) return;
             CompoundTag map = root.getCompound("HotbarsMap");
 
-            // How many pages were saved?
-            int maxIdx = map.getAllKeys().stream()
-                    .mapToInt(Integer::parseInt)
-                    .max().orElse(-1);
+            // Determine how many pages were saved
+            int maxIdx    = map.getAllKeys().stream().mapToInt(Integer::parseInt).max().orElse(-1);
             int pageCount = (maxIdx / Config.getMaxHotbarsPerPage()) + 1;
 
             // Reinitialize pages & names
@@ -307,7 +312,7 @@ public class HotbarManager {
                 pageNames.add("Page " + (pi + 1));
             }
 
-            // Fill in each saved hotbar, growing lists as needed
+            // Populate hotbars
             for (String key : map.getAllKeys()) {
                 int idx = Integer.parseInt(key);
                 int pi  = idx / Config.getMaxHotbarsPerPage();
@@ -319,7 +324,7 @@ public class HotbarManager {
                 page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
             }
 
-            // Restore saved page names
+            // Restore custom page names
             if (root.contains("PageNames", Tag.TAG_COMPOUND)) {
                 CompoundTag namesTag = root.getCompound("PageNames");
                 for (String k : namesTag.getAllKeys()) {
@@ -330,7 +335,7 @@ public class HotbarManager {
                 }
             }
 
-            // Restore last‐known state unchanged
+            // Restore last-known state
             HotbarState.loadState();
             var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
             if (mcPlayer != null) {

@@ -56,22 +56,56 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (isTextFieldFocused()) return true;
+        // ——— If the page-name textbox is focused, consume ALL keys ———
+        if (pageInput != null && pageInput.isFocused()) {
+            // Enter (main or keypad) unfocuses the textbox:
+            if (keyCode == GLFW_KEY_ENTER || keyCode == GLFW_KEY_KP_ENTER) {
+                pageInput.setFocused(false);
+                return true;
+            }
+            // All other keys go into the textbox (arrows, backspace, text, etc.)
+            pageInput.keyPressed(keyCode, scanCode, modifiers);
+            return true;
+        }
+
+        // ——— LEFT / RIGHT WITH WRAP-AROUND ———
+        if (keyCode == GLFW_KEY_LEFT || keyCode == GLFW_KEY_RIGHT) {
+            // Always clear focus so it can’t pop back
+            pageInput.setFocused(false);
+
+            // Determine current page and total pages
+            int current = HotbarManager.getPage();
+            int total   = HotbarManager.getPageNames().size();
+
+            // Compute new page with wrap-around
+            int delta = (keyCode == GLFW_KEY_LEFT) ? -1 : +1;
+            int nextPage = (current + delta + total) % total;
+
+            // Apply new page (and reset hotbar slot to 0)
+            HotbarManager.setPage(nextPage, 0);
+
+            // Refresh the textbox and page list display
+            updatePageInput();
+
+            return true;
+        }
 
         Minecraft mc = Minecraft.getInstance();
-        // Allow switching to inventory
+
+        // ——— Vanilla inventory key → open inventory ———
         if (keyCode == mc.options.keyInventory.getKey().getValue()) {
             mc.setScreen(new InventoryScreen(mc.player));
             return true;
         }
 
-        // Allow closing the GUI with your custom key
-        if (KeyBindings.OPEN_GUI.isActiveAndMatches(InputConstants.getKey(keyCode, scanCode))) {
+        // ——— Your OPEN_GUI binding → close this GUI ———
+        if (KeyBindings.OPEN_GUI.isActiveAndMatches(
+                InputConstants.getKey(keyCode, scanCode))) {
             mc.setScreen(null);
             return true;
         }
 
-        // ---- INSERT YOUR HOTBAR SCROLL LOGIC HERE ----
+        // ——— HOTBAR SCROLL (Up/Down arrows) ———
         if (keyCode == GLFW_KEY_UP) {
             moveHotbarSelection(-1);
             return true;
@@ -81,11 +115,22 @@ public class HotbarGuiScreen extends Screen {
             return true;
         }
 
-        // (Keep your arrow/page key block if needed)
-        // if (keyCode == GLFW_KEY_LEFT || keyCode == GLFW_KEY_RIGHT) ...
-
+        // ——— Fallback to default handling for any other keys ———
         return super.keyPressed(keyCode, scanCode, modifiers);
     }
+
+
+    @Override
+    public boolean charTyped(char codePoint, int modifiers) {
+        // Only forward character typing to the textbox when it’s focused
+        if (pageInput != null && pageInput.isFocused()) {
+            pageInput.charTyped(codePoint, modifiers);
+            return true;
+        }
+        return super.charTyped(codePoint, modifiers);
+    }
+
+
 
     @Override
     public void mouseMoved(double mx, double my) {
@@ -190,7 +235,7 @@ public class HotbarGuiScreen extends Screen {
                     Component.literal(labels[idx]),
                     b -> {
                         if (idx == 0) HotbarManager.addHotbarToCurrentPage();
-                        else if (idx == 1) HotbarManager.removeLastHotbarFromCurrentPage();
+                        else if (idx == 1) HotbarManager.removeSelectedHotbarFromCurrentPage();
                         else if (idx == 2) HotbarManager.addPage();
                         else HotbarManager.removePage(HotbarManager.getPage());
                         this.minecraft.setScreen(new HotbarGuiScreen());
@@ -276,14 +321,15 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        // Always update text box focus
+        // ————— Update text box focus —————
+        // If you click inside the pageInput box, it gains focus; otherwise it loses focus.
         pageInput.setFocused(pageInput.isMouseOver(mx, my));
 
-        // --- Check if clicking a hotbar slot ---
+        // ————— Your original hotbar‐slot logic —————
         int[] slotCoords = getSlotCoords(mx, my);
         boolean clickedSlot = slotCoords != null && btn == GLFW.GLFW_MOUSE_BUTTON_LEFT;
         if (clickedSlot) {
-            // Prepare drag state
+            // Prepare drag state exactly as before
             potentialDrag = true;
             dragging = false;
             sourcePage = HotbarManager.getPage();
@@ -293,14 +339,15 @@ public class HotbarGuiScreen extends Screen {
             pressX = mx;
             pressY = my;
             System.out.println("mouseClicked at X=" + mx + " Y=" + my + " btn=" + btn);
-            System.out.println("getSlotCoords returned: " + (slotCoords == null ? "null" : (slotCoords[0] + "," + slotCoords[1])));
+            System.out.println("getSlotCoords returned: " +
+                    (slotCoords == null ? "null" : (slotCoords[0] + "," + slotCoords[1])));
             return true;
         }
 
-        // --- Otherwise, pass to widgets (page list, buttons, etc) ---
-        // Make sure you do NOT set potentialDrag for page list or other widgets!
+        // ————— Fallback to the rest of your GUI (buttons, page list, etc.) —————
         return super.mouseClicked(mx, my, btn);
     }
+
 
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {

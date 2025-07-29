@@ -148,24 +148,31 @@ public class KeyInputHandler {
             }
         }
 
-        boolean inGui = mc.screen instanceof HotbarGuiScreen
+        boolean inGui       = mc.screen instanceof HotbarGuiScreen
                 || mc.screen instanceof AbstractContainerScreen<?>;
-
         boolean inHotbarGui = mc.screen instanceof HotbarGuiScreen;
-        boolean inInventory = mc.screen instanceof AbstractContainerScreen<?> && !(mc.screen instanceof HotbarGuiScreen);
-        long now = System.currentTimeMillis();
+        boolean inInventory = mc.screen instanceof AbstractContainerScreen<?>
+                && !(mc.screen instanceof HotbarGuiScreen);
+        long now            = System.currentTimeMillis();
 
         // --- Handle hotbar and page navigation keybinds everywhere ---
         boolean[] held = {
+                // 0: decrease hotbar (no Ctrl)
                 !ctrlNow && glfwGetKey(window, KeyBindings.DECREASE_HOTBAR.getKey().getValue()) == GLFW_PRESS,
+                // 1: increase hotbar (no Ctrl)
                 !ctrlNow && glfwGetKey(window, KeyBindings.INCREASE_HOTBAR.getKey().getValue()) == GLFW_PRESS,
+                // 2: Ctrl + -   (decrement page)
                 KeyBindings.DECREASE_PAGE.isDown(),
+                // 3: Ctrl + =   (increment page)
                 KeyBindings.INCREASE_PAGE.isDown(),
-                glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS && inGui,
-                glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS && inGui,
-                // Only handle UP/DOWN in inventory, NOT when HotbarGuiScreen is open
-                inInventory && glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS, // index 6 (Down = decrease)
-                inInventory && glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS    // index 7 (Up = increase)
+                // 4: Arrow →    (page +1) — only in inventory  ← changed
+                glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS && inInventory,
+                // 5: Arrow ←    (page -1) — only in inventory  ← changed
+                glfwGetKey(window, GLFW_KEY_LEFT ) == GLFW_PRESS && inInventory,
+                // 6: Arrow ↓    (hotbar -1) — only in inventory
+                inInventory && glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS,
+                // 7: Arrow ↑    (hotbar +1) — only in inventory
+                inInventory && glfwGetKey(window, GLFW_KEY_UP  ) == GLFW_PRESS
         };
 
         for (int i = 0; i < held.length; i++) {
@@ -175,7 +182,7 @@ public class KeyInputHandler {
                     keyHeld[i] = true;
                     triggerKey(i);
                     keyPressStart[i] = now;
-                    lastRepeat[i] = 0;
+                    lastRepeat[i]    = 0;
                 } else if (now - keyPressStart[i] >= INITIAL_DELAY_MS
                         && now - lastRepeat[i] >= REPEAT_INTERVAL_MS) {
                     lastRepeat[i] = now;
@@ -187,38 +194,12 @@ public class KeyInputHandler {
             }
         }
 
-        // --- Always track the player's currently selected slot ---
-        HotbarManager.setSlot(mc.player.getInventory().selected);
-
-        // --- Detect hotbar changes and save them in ANY SCREEN ---
-        // (removes restriction to main HUD only)
-        if (mc.player != null && now - lastSyncCheck > 1000) {
-            lastSyncCheck = now;
-            boolean changed = false;
-            for (int i = 0; i < 9; i++) {
-                ItemStack current = mc.player.getInventory().getItem(i);
-                ItemStack cached = lastKnownHotbar[i] != null ? lastKnownHotbar[i] : ItemStack.EMPTY;
-                if (!ItemStack.matches(current, cached)) {
-                    changed = true;
-                    break;
-                }
-            }
-            if (changed) {
-                HotbarManager.syncFromGame();     // Copy player hotbar to your virtual data
-                HotbarManager.saveHotbars();      // Save to disk
-                System.out.println("[UltimateHotbars] Hotbar changed in inventory and saved!"); // Debug
-                for (int i = 0; i < 9; i++) {
-                    lastKnownHotbar[i] = mc.player.getInventory().getItem(i).copy();
-                }
-            }
-        }
-
         // --- Sync hotbars when switching between screens, to keep everything consistent ---
         Screen current = mc.screen;
         if (lastScreen != current) {
             if (lastScreen instanceof InventoryScreen
                     || lastScreen instanceof HotbarGuiScreen
-                    || current instanceof HotbarGuiScreen) {
+                    || current    instanceof HotbarGuiScreen) {
                 HotbarManager.syncFromGame();
             }
             lastScreen = current;
