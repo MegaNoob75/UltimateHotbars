@@ -52,6 +52,13 @@ public class HotbarManager {
         return pages.size();
     }
 
+    public static void clearCurrentHotbar() {
+        // Grab the Hotbar object for the current page/slot
+        List<Hotbar> hotbars = pages.get(currentPage);
+        hotbars.get(currentHotbar).clear();
+    }
+
+
     /** Returns an immutable copy of all page names. */
     public static List<String> getPageNames() {
         return new ArrayList<>(pageNames);

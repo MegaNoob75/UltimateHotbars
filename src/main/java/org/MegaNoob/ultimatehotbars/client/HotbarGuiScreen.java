@@ -371,68 +371,80 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
+        // If we’re currently dragging an item out of a hotbar slot…
         if (dragging) {
-            int bgW = 182, rowH = 22;
-            int baseX = this._renderBaseX;
-            int topY = pageInput.getY() + pageInput.getHeight() + 10;
+            // --- Compute layout bounds for hotbar rows and delete zone ---
+            int bgW        = 182;
+            int rowH       = 22;
+            int baseX      = this._renderBaseX;
+            int topY       = pageInput.getY() + pageInput.getHeight() + 10;
             List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
             int visibleRows = Math.max(1, (this.height - topY - 30) / rowH);
-            int delW = 50;
-            int delH = Math.max(rowH, Math.min(pageHotbars.size(), visibleRows) * rowH);
-            int delX = this._renderDelX;
-            int delY = topY - 3;
-            int[] coords = getSlotCoords(mx, my);
-
-            System.out.println("[UltimateHotbars] mouseReleased: mx=" + mx + " my=" + my +
-                    " | delX=" + delX + " delY=" + delY + " delW=" + delW + " delH=" + delH +
-                    " | coords=" + (coords == null ? "null" : coords[0] + "," + coords[1]));
+            int delW       = 50;
+            int delH       = Math.max(rowH, Math.min(pageHotbars.size(), visibleRows) * rowH);
+            int delX       = this._renderDelX;
+            int delY       = topY - 3;
+            int[] coords   = getSlotCoords(mx, my);
 
             boolean handled = false;
 
-            // 1. Drop in delete zone: Remove item
+            // 1) Dropped in the DELETE zone? — clear that slot
             if (mx >= delX && mx < delX + delW && my >= delY && my < delY + delH) {
-                System.out.println("[UltimateHotbars] DELETE zone, item removed");
                 sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
-                Minecraft.getInstance().player.playSound(SoundEvents.ITEM_BREAK, 1.0F, 1.0F);
+                Minecraft.getInstance().player.playSound(
+                        SoundEvents.ITEM_BREAK, 1.0F, 1.0F
+                );
                 handled = true;
             }
-            // 2. Dropped on a slot
+            // 2) Dropped on a valid hotbar slot? — swap or restore
             else if (coords != null) {
-                // Check if dropped on original source slot
+                // Same slot → no-op, just restore original
                 if (coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
-                    System.out.println("[UltimateHotbars] DROPPED ON SAME SLOT - no-op, restore");
                     sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
                     handled = true;
-                } else {
-                    System.out.println("[UltimateHotbars] SWAP zone, swapped items");
-                    Hotbar target = HotbarManager.getCurrentPageHotbars().get(coords[0]);
-                    ItemStack exist = target.getSlot(coords[1]);
+                }
+                // Different slot → swap items
+                else {
+                    Hotbar target = pageHotbars.get(coords[0]);
+                    ItemStack existing = target.getSlot(coords[1]);
                     target.setSlot(coords[1], draggedStack);
-                    sourceHotbar.setSlot(sourceSlotIdx, exist);
-                    Minecraft.getInstance().player.playSound(SoundEvents.ITEM_PICKUP, 1.0F, 0.8F);
+                    sourceHotbar.setSlot(sourceSlotIdx, existing);
+                    Minecraft.getInstance().player.playSound(
+                            SoundEvents.ITEM_PICKUP, 1.0F, 0.8F
+                    );
                     handled = true;
                 }
             }
-            // 3. Dropped anywhere else (not a slot, not delete): always revert!
+            // 3) Dropped elsewhere → revert to original slot
             if (!handled) {
-                System.out.println("[UltimateHotbars] REVERT, restored original item");
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
 
+            // --- PERSISTENCE: immediately write this mutation to disk ---
+            // 1) Make sure our in-memory model reflects any remaining inventory slots
+            HotbarManager.syncFromGame();
+            // 2) Save ALL hotbars in one shot
             HotbarManager.saveHotbars();
+            // 3) Push that saved model back into the player’s inventory
             HotbarManager.syncToGame();
 
-            dragging = false;
+            // Reset drag state flags
+            dragging     = false;
             potentialDrag = false;
             draggedStack = ItemStack.EMPTY;
             return true;
         }
+
+        // If we thought we might drag, but didn’t (i.e. click), hand off to your click handler
         if (potentialDrag && !dragging) {
             potentialDrag = false;
             return handleClick(mx, my, btn);
         }
+
+        // Otherwise, let the superclass handle it (e.g. closing the GUI)
         return super.mouseReleased(mx, my, btn);
     }
+
 
 
 
@@ -528,15 +540,26 @@ public class HotbarGuiScreen extends Screen {
         int baseX = this._renderBaseX;
         int topY = pageInput.getY() + pageInput.getHeight() + 10;
 
-        // SCROLLING: how many hotbars fit on screen?
-        int availableHeight = this.height - topY - 30; // 30px for bottom margin
-        int visibleRows = Math.max(1, availableHeight / rowH);
-        int totalRows = pageHotbars.size();
+        // … earlier in render() …
+        int availableHeight = this.height - topY - 30;
+        int visibleRows    = Math.max(1, availableHeight / rowH);
+        int totalRows      = pageHotbars.size();
 
-        // Clamp scroll row if needed
-        if (hotbarScrollRow > totalRows - visibleRows) hotbarScrollRow = Math.max(0, totalRows - visibleRows);
-        if (selHb < hotbarScrollRow) HotbarManager.setHotbar(hotbarScrollRow, "scroll");
-        else if (selHb > hotbarScrollRow + visibleRows - 1) HotbarManager.setHotbar(hotbarScrollRow + visibleRows - 1, "scroll");
+        // 1) Clamp scrollRow to valid range
+        if (hotbarScrollRow > totalRows - visibleRows) {
+            hotbarScrollRow = Math.max(0, totalRows - visibleRows);
+        }
+
+        // 2) If the selected hotbar (selHb) is above or below the visible window,
+        //    slide the window up or down so selHb comes into view.
+        if (selHb < hotbarScrollRow) {
+            hotbarScrollRow = selHb;
+        } else if (selHb > hotbarScrollRow + visibleRows - 1) {
+            hotbarScrollRow = selHb - visibleRows + 1;
+        }
+
+        // … now proceed with drawing only the rows [hotbarScrollRow ... hotbarScrollRow+visibleRows) …
+
 
         // Only draw the visible rows
         for (int vis = 0; vis < visibleRows && (hotbarScrollRow + vis) < totalRows; vis++) {
@@ -687,15 +710,18 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public void removed() {
+        super.removed();
         if (dragging) {
             sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-            dragging = false; potentialDrag = false; draggedStack = ItemStack.EMPTY;
+            dragging = false;
+            potentialDrag = false;
+            draggedStack = ItemStack.EMPTY;
         }
-        HotbarManager.syncFromGame(); // <-- flush inventory to hotbar data
+        // Capture final hotbar state and persist
+        HotbarManager.syncFromGame();
         HotbarManager.saveHotbars();
-        HotbarManager.syncToGame();
-        super.removed();
     }
+
 
 
     @Override public boolean shouldCloseOnEsc() { return true; }
