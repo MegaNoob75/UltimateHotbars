@@ -40,7 +40,7 @@ public class ClientEvents {
         if (event.phase != TickEvent.Phase.END) return;
 
         // run the key-handling every tick, even in GUIs
-        KeyInputHandler.tick();
+        org.MegaNoob.ultimatehotbars.client.KeyInputHandler.tick();
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;

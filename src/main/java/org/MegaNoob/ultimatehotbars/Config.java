@@ -47,6 +47,19 @@ public class Config {
     // new default hover-border color
     public static float[] hoverBorderColor = new float[]{1.0f, 1.0f, 1.0f, 1.0f};
 
+    // Default to 50 ms
+    private static int scrollThrottleMs = 50;
+
+    public static int getScrollThrottleMs() {
+        return scrollThrottleMs;
+    }
+
+    public static void setScrollThrottleMs(int ms) {
+        scrollThrottleMs = ms;
+        save();
+    }
+
+
     @SubscribeEvent
     static void onLoad(final Loading event) {
         enableSounds = ENABLE_SOUNDS.get();
