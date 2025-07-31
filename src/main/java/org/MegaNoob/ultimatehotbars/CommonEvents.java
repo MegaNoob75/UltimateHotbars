@@ -18,8 +18,12 @@ public class CommonEvents {
         if (!event.getEntity().level().isClientSide) return;
 
         System.out.println("[UltimateHotbars] Capturing hotbar before death");
-        HotbarManager.syncFromGame();
+        // Only copy & mark dirty if the real bar actually changed:
+        if (HotbarManager.syncFromGameIfChanged()) {
+            HotbarManager.saveHotbars();
+        }
     }
+
 
     /**
      * After respawning, Minecraft hands you a fresh inventory.
@@ -43,11 +47,16 @@ public class CommonEvents {
     public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (!event.getEntity().level().isClientSide) return;
 
-        System.out.println("[UltimateHotbars] Syncing from game before dimension change");
-        HotbarManager.syncFromGame();                                         // ← same as before
+        System.out.println("[UltimateHotbars] Capturing hotbar before dimension change");
+        // Only sync & persist if the player’s real hotbar differs from our last snapshot
+        if (HotbarManager.syncFromGameIfChanged()) {
+            HotbarManager.saveHotbars();
+        }
 
-        System.out.println("[UltimateHotbars] Restoring hotbars after dimension change");  // ← ADDED
-        HotbarManager.loadHotbars();                                          // ← ADDED
-        HotbarManager.syncToGame();                                           // ← ADDED
+        // Now load back the last-saved state (so we don’t carry over any dimension-quirks)
+        System.out.println("[UltimateHotbars] Restoring hotbars after dimension change");
+        HotbarManager.loadHotbars();
+        HotbarManager.syncToGame();
     }
+
 }

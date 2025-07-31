@@ -84,11 +84,12 @@ public class PageListWidget extends ObjectSelectionList<PageListWidget.Entry> {
         @Override
         public boolean mouseClicked(double mx, double my, int btn) {
             if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                if (!org.MegaNoob.ultimatehotbars.client.KeyInputHandler.canNavigate()) return true;  // ← throttle page‐clicks
                 // --- CRITICAL: Save everything before switching ---
-                HotbarManager.syncFromGame();
-                if (HotbarManager.isDirty()) {
+                if (HotbarManager.syncFromGameIfChanged()) {
                     HotbarManager.saveHotbars();
                 }
+
 
                 HotbarManager.setPage(index, 0);
 

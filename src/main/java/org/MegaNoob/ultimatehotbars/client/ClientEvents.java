@@ -5,21 +5,17 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.world.item.ItemStack;
-
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
-
-import net.minecraftforge.client.event.ScreenEvent.Closing;
+import net.minecraftforge.client.event.ScreenEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.item.ItemTossEvent;
 import net.minecraftforge.event.entity.player.EntityItemPickupEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-
 import org.MegaNoob.ultimatehotbars.HotbarManager;
-import org.MegaNoob.ultimatehotbars.client.HotbarGuiScreen;
-import org.MegaNoob.ultimatehotbars.client.KeyInputHandler;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
+import org.MegaNoob.ultimatehotbars.Hotbar;
 
 @Mod.EventBusSubscriber(
         modid = ultimatehotbars.MODID,
@@ -57,7 +53,7 @@ public class ClientEvents {
         if (mc.screen == null && now - lastSyncCheck > 1000) {
             lastSyncCheck = now;
             boolean changed = false;
-            for (int i = 0; i < 9; i++) {
+            for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
                 ItemStack curr   = mc.player.getInventory().getItem(i);
                 ItemStack cached = lastKnownHotbar[i] != null
                         ? lastKnownHotbar[i]
@@ -68,54 +64,71 @@ public class ClientEvents {
                 }
             }
             if (changed) {
-                HotbarManager.syncFromGame();
-                for (int i = 0; i < 9; i++) {
+                if (HotbarManager.syncFromGameIfChanged()) {
+                    HotbarManager.saveHotbars();
+                }
+                for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
                     lastKnownHotbar[i] = mc.player.getInventory().getItem(i).copy();
                 }
             }
         }
 
-        // sync on screen open/close
+        // *** HERE’S THE MISSING DECLARATION ***
         Screen current = mc.screen;
-        if (lastScreen != current) {
-            if (lastScreen instanceof InventoryScreen
-                    || lastScreen instanceof HotbarGuiScreen
-                    || current   instanceof HotbarGuiScreen) {
-                HotbarManager.syncFromGame();
+
+        // sync on screen open/close
+        if (lastScreen instanceof InventoryScreen
+                || lastScreen instanceof HotbarGuiScreen
+                || current   instanceof HotbarGuiScreen) {
+            if (HotbarManager.syncFromGameIfChanged()) {
+                HotbarManager.saveHotbars();
             }
-            lastScreen = current;
         }
+        lastScreen = current;
     }
+
 
     /** Save on item toss (Q/drop) */
     @SubscribeEvent
     public static void onItemToss(final ItemTossEvent event) {
         if (event.getPlayer() == Minecraft.getInstance().player) {
-            HotbarManager.syncFromGame();
-            HotbarManager.markDirty();
-            HotbarManager.syncToGame();  // if you need an immediate client update
+            // Only pull & save if the real hotbar actually changed (throws an item out)
+            if (HotbarManager.syncFromGameIfChanged()) {
+                HotbarManager.saveHotbars();
+            }
+            // (Optional) push the new virtual state back into the game immediately:
+            HotbarManager.syncToGame();
         }
     }
 
-    /** Save on world pickup */
-    @SubscribeEvent
-    public static void onItemPickup(final EntityItemPickupEvent event) {
-        if (event.getEntity() == Minecraft.getInstance().player) {
-            HotbarManager.syncFromGame();
-            HotbarManager.markDirty();
-            HotbarManager.syncToGame();  // if you need an immediate client update
-        }
-    }
 
-    /** Save after any container screen closes (excluding your Hotbar GUI) */
-    @SubscribeEvent
-    public static void onScreenClose(final Closing event) {
-        Screen screen = event.getScreen();
-        if (screen instanceof AbstractContainerScreen<?>
-                && !(screen instanceof HotbarGuiScreen)) {
-            HotbarManager.syncFromGame();
-            HotbarManager.markDirty();
-            HotbarManager.syncToGame();  // if you need an immediate client update
+/** Save on world pickup */
+@SubscribeEvent
+public static void onItemPickup(final EntityItemPickupEvent event) {
+    if (event.getEntity() == Minecraft.getInstance().player) {
+        // Only pull & save if the real hotbar actually changed (picked up an item)
+        if (HotbarManager.syncFromGameIfChanged()) {
+            HotbarManager.saveHotbars();
         }
+        // Immediately update the client inventory from our virtual hotbar
+        HotbarManager.syncToGame();
     }
+}
+
+
+/** Save after any container screen closes (excluding your Hotbar GUI) */
+@SubscribeEvent
+public static void onScreenClose(final ScreenEvent.Closing event) {
+    Screen screen = event.getScreen();
+    if (screen instanceof AbstractContainerScreen<?>
+            && !(screen instanceof HotbarGuiScreen)) {
+        // Only pull & save if the real hotbar actually changed
+        if (HotbarManager.syncFromGameIfChanged()) {
+            HotbarManager.saveHotbars();
+        }
+        // Update the client inventory from our virtual hotbar
+        HotbarManager.syncToGame();
+    }
+}
+
 }

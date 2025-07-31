@@ -53,9 +53,13 @@ public class HotbarManager {
     }
 
     public static void clearCurrentHotbar() {
-        // Grab the Hotbar object for the current page/slot
         List<Hotbar> hotbars = pages.get(currentPage);
         hotbars.get(currentHotbar).clear();
+        // ◀ flag & persist
+        markDirty();
+        saveHotbars();
+        // ◀ push the cleared state into the real inventory
+        syncToGame();
     }
 
 
@@ -196,7 +200,7 @@ public class HotbarManager {
         lastHotbarSet    = currentHotbar;
         lastHotbarSource = "page switch";
         clampHotbarIndex();
-        markDirty();       // ← flag that state has changed
+        // ← no markDirty() here
         syncToGame();
     }
 
@@ -217,7 +221,7 @@ public class HotbarManager {
 
         if (!"arrow page switch".equals(sourceTag) && !"page switch".equals(sourceTag)) {
             clampHotbarIndex();
-            markDirty();   // ← flag that state has changed
+            // ← no markDirty() here
             syncToGame();
         }
     }
@@ -286,6 +290,32 @@ public class HotbarManager {
         markDirty();
     }
 
+    /**
+     * Like syncFromGame(), but only updates (and marks dirty) if
+     * the real hotbar actually differs from our virtual one.
+     * @return true if we saw any differences and updated.
+     */
+    public static boolean syncFromGameIfChanged() {
+        clampHotbarIndex();
+        var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
+        if (mcPlayer == null) return false;
+
+        Hotbar vb = getCurrentHotbar();
+        boolean changed = false;
+        for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
+            ItemStack real = mcPlayer.getInventory().getItem(i);
+            ItemStack virt = vb.getSlot(i);
+            // Use ItemStack.isSameItem to allow stacked counts etc
+            if (!ItemStack.matches(virt, real)) {
+                vb.setSlot(i, real.copy());
+                changed = true;
+            }
+        }
+        if (changed) {
+            markDirty();
+        }
+        return changed;
+    }
 
     // ================================================================
     // Persistence: saveHotbars + loadHotbars include pageNames

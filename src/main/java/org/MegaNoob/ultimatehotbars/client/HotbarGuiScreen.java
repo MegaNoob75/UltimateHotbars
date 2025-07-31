@@ -13,7 +13,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.sounds.SoundEvents;
-import net.minecraft.util.Mth;
 import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
@@ -23,6 +22,7 @@ import net.minecraft.world.item.ItemStack;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import java.util.List;
+import org.MegaNoob.ultimatehotbars.Hotbar;
 
 public class HotbarGuiScreen extends Screen {
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
@@ -48,8 +48,12 @@ public class HotbarGuiScreen extends Screen {
     private Hotbar  sourceHotbar;
     private ItemStack draggedStack = ItemStack.EMPTY;
 
+    //throttling for hotbar switches
     private long lastNavTime = 0L;
     private static final long NAV_THROTTLE_MS = 100L;
+
+    // Prevent overlapping sync+save operations
+    private boolean saveInProgress = false;
 
     private double lastMouseX, lastMouseY;
 
@@ -295,33 +299,42 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        // --- PAGE LIST SCROLL (change pages)
+        // PAGE LIST SCROLL
         if (this.pageListWidget.isMouseOver(mx, my)) {
-            int curr = HotbarManager.getPage();
-            int cnt = HotbarManager.getPageCount();
-            int dir = delta > 0 ? -1 : 1;
-            int wrapped = ((curr + dir) % cnt + cnt) % cnt;
+            // block if still saving
+            if (saveInProgress) return true;
+            saveInProgress = true;
+            try {
+                int curr = HotbarManager.getPage();
+                int cnt  = HotbarManager.getPageCount();
+                int dir  = delta > 0 ? -1 : 1;
+                int wrapped = ((curr + dir) % cnt + cnt) % cnt;
 
-            // --- CRITICAL: Save current hotbar and page before switching!
-            HotbarManager.syncFromGame();
-            if (HotbarManager.isDirty()) {
-                HotbarManager.saveHotbars();
-            }
+                // only snapshot & save if the real hotbar actually changed
+                if (HotbarManager.syncFromGameIfChanged()) {
+                    HotbarManager.saveHotbars();
+                }
 
-            HotbarManager.setPage(wrapped, 0);  // handles both page and hotbar now
+                HotbarManager.setPage(wrapped, 0);  // internally calls syncToGame()
+                updatePageInput();
 
-            updatePageInput(); // updates text input + widget
-
-            if (Config.enableSounds() && Minecraft.getInstance().player != null) {
-                Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
+                if (Config.enableSounds() && Minecraft.getInstance().player != null) {
+                    Minecraft.getInstance().player.playSound(
+                            SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f
+                    );
+                }
+            } finally {
+                saveInProgress = false;
             }
             return true;
         }
 
-        // Else: scroll hotbars just like arrow keys, and always wrap and scroll to show
+        // HOTBAR SCROLL (via wheel) — now goes through moveHotbarSelection
         moveHotbarSelection(delta > 0 ? -1 : 1);
         return true;
     }
+
+
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
@@ -398,10 +411,10 @@ public class HotbarGuiScreen extends Screen {
                 sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
                 // Mark for persistence
                 HotbarManager.markDirty();
-                // Push the cleared slot into the real inventory
-                HotbarManager.syncToGame();
                 // Persist to disk (dirty‐guarded)
                 HotbarManager.saveHotbars();
+                // Push the cleared slot into the real inventory
+                HotbarManager.syncToGame();
                 // Feedback
                 Minecraft.getInstance().player.playSound(
                         SoundEvents.ITEM_BREAK, 1.0F, 1.0F
@@ -455,52 +468,54 @@ public class HotbarGuiScreen extends Screen {
     }
 
 
-
-
-    /**
-     * Handles clicking on a hotbar slot.
-     * Selects the correct hotbar and slot, updates both the virtual and actual inventory,
-     * and (optionally) closes the GUI.
-     */
-    private boolean handleClick(double mx, double my, int btn) {
-        // Calculate layout constants (must match render() and getSlotCoords)
-        int bgW = 182, rowH = 22, border = 1;
-        int baseX = this._renderBaseX;
-        int topY = pageInput.getY() + pageInput.getHeight() + 10;
+    protected boolean handleClick(double mx, double my, int btn) {
+        // 0) Calculate layout constants (must match render() and getSlotCoords)
+        int bgW     = 182;
+        int rowH    = 22;
+        int border  = 1;
+        int baseX   = this._renderBaseX;
+        int topY    = pageInput.getY() + pageInput.getHeight() + 10;
 
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
-        int visibleRows = Math.max(1, (this.height - topY - 30) / rowH);
-        int totalRows = pageHotbars.size();
+        int totalRows    = pageHotbars.size();
+        int available    = this.height - topY - 30;
+        int visibleRows  = Math.max(1, available / rowH);
 
-        // Loop through only visible rows and columns, match math in render/getSlotCoords
+        // 1) Loop through visible rows & slots
         for (int vis = 0; vis < visibleRows && (hotbarScrollRow + vis) < totalRows; vis++) {
             int row = hotbarScrollRow + vis;
-            int y = topY + vis * rowH;
-            int cellW = (bgW - 2) / Hotbar.SLOT_COUNT;
+            int y   = topY + vis * rowH;
+            int cellW = (bgW - (border * 2)) / Hotbar.SLOT_COUNT;
 
             for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
                 int x = baseX + s * cellW;
                 // Check if mouse is over this slot
                 if (mx >= x && mx < x + cellW && my >= y && my < y + rowH) {
                     if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
-                        // Update virtual hotbar and slot
+                        // 2) Switch virtual hotbar & slot
                         HotbarManager.setHotbar(row, "mouseClick(LEFT)");
                         HotbarManager.setSlot(s);
-                        HotbarManager.syncFromGame();
-                        // Update player's inventory slot selection
+
+                        // 3) Push that hotbar into the real inventory
+                        HotbarManager.syncToGame();
+
+                        // 4) Update carried-item slot
                         Minecraft mc = Minecraft.getInstance();
                         mc.player.getInventory().selected = s;
-                        mc.player.connection.send(new ServerboundSetCarriedItemPacket(s));
-                        HotbarManager.syncToGame();
-                        // Optionally close the GUI (uncomment next line if desired)
-                        // mc.setScreen(null);
+                        mc.player.connection.send(
+                                new ServerboundSetCarriedItemPacket(s)
+                        );
+
                         return true;
                     }
-               }
+                }
             }
         }
+
         return false;
     }
+
+
 
 
     private int[] getSlotCoords(double mx, double my) {
@@ -661,58 +676,43 @@ public class HotbarGuiScreen extends Screen {
     }
 
     /**
-     * Handles arrow-key / scroll navigation in the GUI.
-     * Snapshots & saves before switching hotbars so edits aren’t lost.
+     * Handles arrow-key or scroll-wheel navigation in the GUI.
+     * Blocks any new nav until the current sync+save+switch finishes.
      */
     private void moveHotbarSelection(int direction) {
-        long now = System.currentTimeMillis();
-        if (now - lastNavTime < NAV_THROTTLE_MS) {
-            return; // too soon since last switch
-        }
-        lastNavTime = now;
-
+        if (!org.MegaNoob.ultimatehotbars.client.KeyInputHandler.canNavigate()) return;  // ← throttle
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int totalRows = pageHotbars.size();
-        if (totalRows <= 1) {
-            return;
-        }
+        if (totalRows <= 1) return;
 
-        // 1) Snapshot current real-bar → virtual and persist
-        HotbarManager.syncFromGame();
-        try {
+        // ▶ Only snapshot & save if there are unsaved edits
+        if (HotbarManager.syncFromGameIfChanged()) {
             HotbarManager.saveHotbars();
-        } catch (Exception e) {
-            LOGGER.error("Failed to save hotbar before switching via arrow/scroll", e);
-            return;
         }
 
-        // 2) Compute & apply the new hotbar index
-        int selHb   = HotbarManager.getHotbar();
-        int newSel  = ((selHb + direction) % totalRows + totalRows) % totalRows;
+
+        // 1) Compute & apply new hotbar index
+        int selHb  = HotbarManager.getHotbar();
+        int newSel = ((selHb + direction) % totalRows + totalRows) % totalRows;
         HotbarManager.setHotbar(newSel, "arrow");
 
-        // 3) Push that new hotbar into the real inventory
+        // 2) Push that virtual hotbar into the real inventory
         HotbarManager.syncToGame();
 
-        // 4) Adjust scrolling window to keep selection visible
-        int rowH = 22;
-        int topY = pageInput.getY() + pageInput.getHeight() + 10;
-        int availableHeight = this.height - topY - 30;
-        int visibleRows = Math.max(1, availableHeight / rowH);
+        // 3) Adjust scroll-window so the newSel is visible
+        int rowH   = 22;
+        int topY   = pageInput.getY() + pageInput.getHeight() + 10;
+        int avail  = this.height - topY - 30;
+        int visible= Math.max(1, avail / rowH);
+        if (newSel < hotbarScrollRow) hotbarScrollRow = newSel;
+        else if (newSel >= hotbarScrollRow + visible)
+            hotbarScrollRow = newSel - visible + 1;
+        hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, totalRows - visible));
 
-        if (newSel < hotbarScrollRow) {
-            hotbarScrollRow = newSel;
-        } else if (newSel >= hotbarScrollRow + visibleRows) {
-            hotbarScrollRow = newSel - visibleRows + 1;
-        }
-        hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, totalRows - visibleRows));
-
-        // 5) Play click sound if enabled
+        // 4) Play feedback sound
         if (Config.enableSounds() && Minecraft.getInstance().player != null) {
             Minecraft.getInstance().player.playSound(
-                    SoundEvents.UI_BUTTON_CLICK.get(),
-                    0.7f,
-                    1.4f
+                    SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f
             );
         }
     }
@@ -731,9 +731,10 @@ public class HotbarGuiScreen extends Screen {
         }
 
         // 2) Persist *virtual* data if needed (no syncFromGame here)
-        if (HotbarManager.isDirty()) {
+        if (HotbarManager.syncFromGameIfChanged()) {
             HotbarManager.saveHotbars();
         }
+
     }
 
 
