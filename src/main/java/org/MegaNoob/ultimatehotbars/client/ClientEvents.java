@@ -92,7 +92,8 @@ public class ClientEvents {
     public static void onItemToss(final ItemTossEvent event) {
         if (event.getPlayer() == Minecraft.getInstance().player) {
             HotbarManager.syncFromGame();
-            HotbarManager.saveHotbars();
+            HotbarManager.markDirty();
+            HotbarManager.syncToGame();  // if you need an immediate client update
         }
     }
 
@@ -101,7 +102,8 @@ public class ClientEvents {
     public static void onItemPickup(final EntityItemPickupEvent event) {
         if (event.getEntity() == Minecraft.getInstance().player) {
             HotbarManager.syncFromGame();
-            HotbarManager.saveHotbars();
+            HotbarManager.markDirty();
+            HotbarManager.syncToGame();  // if you need an immediate client update
         }
     }
 
@@ -112,7 +114,8 @@ public class ClientEvents {
         if (screen instanceof AbstractContainerScreen<?>
                 && !(screen instanceof HotbarGuiScreen)) {
             HotbarManager.syncFromGame();
-            HotbarManager.saveHotbars();
+            HotbarManager.markDirty();
+            HotbarManager.syncToGame();  // if you need an immediate client update
         }
     }
 }

@@ -48,6 +48,9 @@ public class HotbarGuiScreen extends Screen {
     private Hotbar  sourceHotbar;
     private ItemStack draggedStack = ItemStack.EMPTY;
 
+    private long lastNavTime = 0L;
+    private static final long NAV_THROTTLE_MS = 100L;
+
     private double lastMouseX, lastMouseY;
 
     public HotbarGuiScreen() {
@@ -170,6 +173,7 @@ public class HotbarGuiScreen extends Screen {
     @Override
     protected void init() {
         super.init();
+        HotbarManager.syncFromGame();
         this.clearWidgets();
 
         // --- Main dimensions and minimums ---
@@ -300,11 +304,11 @@ public class HotbarGuiScreen extends Screen {
 
             // --- CRITICAL: Save current hotbar and page before switching!
             HotbarManager.syncFromGame();
-            HotbarManager.saveHotbars();
+            if (HotbarManager.isDirty()) {
+                HotbarManager.saveHotbars();
+            }
 
             HotbarManager.setPage(wrapped, 0);  // handles both page and hotbar now
-
-            HotbarManager.syncToGame();
 
             updatePageInput(); // updates text input + widget
 
@@ -390,7 +394,15 @@ public class HotbarGuiScreen extends Screen {
 
             // 1) Dropped in the DELETE zone? — clear that slot
             if (mx >= delX && mx < delX + delW && my >= delY && my < delY + delH) {
+                // Clear virtual hotbar
                 sourceHotbar.setSlot(sourceSlotIdx, ItemStack.EMPTY);
+                // Mark for persistence
+                HotbarManager.markDirty();
+                // Push the cleared slot into the real inventory
+                HotbarManager.syncToGame();
+                // Persist to disk (dirty‐guarded)
+                HotbarManager.saveHotbars();
+                // Feedback
                 Minecraft.getInstance().player.playSound(
                         SoundEvents.ITEM_BREAK, 1.0F, 1.0F
                 );
@@ -398,50 +410,47 @@ public class HotbarGuiScreen extends Screen {
             }
             // 2) Dropped on a valid hotbar slot? — swap or restore
             else if (coords != null) {
-                // Same slot → no-op, just restore original
-                if (coords[0] == sourceRow && coords[1] == sourceSlotIdx) {
+                int targetRow = coords[0], targetSlot = coords[1];
+                Hotbar target = pageHotbars.get(targetRow);
+
+                if (targetRow == sourceRow && targetSlot == sourceSlotIdx) {
+                    // Dropped back on the same slot: just restore
                     sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-                    handled = true;
-                }
-                // Different slot → swap items
-                else {
-                    Hotbar target = pageHotbars.get(coords[0]);
-                    ItemStack existing = target.getSlot(coords[1]);
-                    target.setSlot(coords[1], draggedStack);
+                } else {
+                    // Swap
+                    ItemStack existing = target.getSlot(targetSlot);
+                    target.setSlot(targetSlot, draggedStack);
                     sourceHotbar.setSlot(sourceSlotIdx, existing);
+                    // Mark & persist
+                    HotbarManager.markDirty();
+                    HotbarManager.syncToGame();
+                    HotbarManager.saveHotbars();
+                    // Feedback
                     Minecraft.getInstance().player.playSound(
                             SoundEvents.ITEM_PICKUP, 1.0F, 0.8F
                     );
-                    handled = true;
                 }
+                handled = true;
             }
             // 3) Dropped elsewhere → revert to original slot
-            if (!handled) {
+            else {
                 sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
             }
 
-            // --- PERSISTENCE: immediately write this mutation to disk ---
-            // 1) Make sure our in-memory model reflects any remaining inventory slots
-            HotbarManager.syncFromGame();
-            // 2) Save ALL hotbars in one shot
-            HotbarManager.saveHotbars();
-            // 3) Push that saved model back into the player’s inventory
-            HotbarManager.syncToGame();
-
-            // Reset drag state flags
-            dragging     = false;
+            // Reset drag state
+            dragging      = false;
             potentialDrag = false;
-            draggedStack = ItemStack.EMPTY;
+            draggedStack  = ItemStack.EMPTY;
             return true;
         }
 
-        // If we thought we might drag, but didn’t (i.e. click), hand off to your click handler
+        // If we thought we might drag, but didn’t (i.e. it was just a click), fall back
         if (potentialDrag && !dragging) {
             potentialDrag = false;
             return handleClick(mx, my, btn);
         }
 
-        // Otherwise, let the superclass handle it (e.g. closing the GUI)
+        // Otherwise, pass through
         return super.mouseReleased(mx, my, btn);
     }
 
@@ -487,7 +496,7 @@ public class HotbarGuiScreen extends Screen {
                         // mc.setScreen(null);
                         return true;
                     }
-                }
+               }
             }
         }
         return false;
@@ -652,57 +661,59 @@ public class HotbarGuiScreen extends Screen {
     }
 
     /**
-     * Handles moving the selected hotbar up or down (arrow keys or scroll).
-     * - Always saves the current hotbar from the player inventory (even if not switching).
-     * - Only allows switching if two or more hotbars exist.
-     * - Prevents unwanted inventory overwrites when only one hotbar is present.
-     *
-     * @param direction -1 for up, +1 for down
+     * Handles arrow-key / scroll navigation in the GUI.
+     * Snapshots & saves before switching hotbars so edits aren’t lost.
      */
     private void moveHotbarSelection(int direction) {
+        long now = System.currentTimeMillis();
+        if (now - lastNavTime < NAV_THROTTLE_MS) {
+            return; // too soon since last switch
+        }
+        lastNavTime = now;
+
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int totalRows = pageHotbars.size();
-
-        // --- Always sync any player inventory changes into the hotbar and save ---
-        // This ensures edits (drag, drop, swap, etc) are never lost,
-        // even if the user tries to switch hotbar with only one present.
-        HotbarManager.syncFromGame();    // Copy current player inventory → current hotbar
-        HotbarManager.saveHotbars();     // Save to disk
-
-        // --- Only switch if there are at least two hotbars ---
-        // If only one hotbar, don't allow switching or overwrite player inventory.
         if (totalRows <= 1) {
-            // Nothing to switch to, so just return.
             return;
         }
 
-        int bgW = 182, rowH = 22;
-        int topY = pageInput.getY() + pageInput.getHeight() + 10;
-        int availableHeight = this.height - topY - 30; // Space for rows
-        int visibleRows = Math.max(1, availableHeight / rowH);
+        // 1) Snapshot current real-bar → virtual and persist
+        HotbarManager.syncFromGame();
+        try {
+            HotbarManager.saveHotbars();
+        } catch (Exception e) {
+            LOGGER.error("Failed to save hotbar before switching via arrow/scroll", e);
+            return;
+        }
 
-        int selHb = HotbarManager.getHotbar();
-        int newSel = (selHb + direction + totalRows) % totalRows;
-
-        // --- Actually switch hotbars ---
+        // 2) Compute & apply the new hotbar index
+        int selHb   = HotbarManager.getHotbar();
+        int newSel  = ((selHb + direction) % totalRows + totalRows) % totalRows;
         HotbarManager.setHotbar(newSel, "arrow");
 
-        // --- Now update the player inventory with the new hotbar ---
-        HotbarManager.syncToGame(); // Copy current virtual hotbar → player inventory
+        // 3) Push that new hotbar into the real inventory
+        HotbarManager.syncToGame();
 
-        // --- Maintain scroll position so new selection is always visible ---
+        // 4) Adjust scrolling window to keep selection visible
+        int rowH = 22;
+        int topY = pageInput.getY() + pageInput.getHeight() + 10;
+        int availableHeight = this.height - topY - 30;
+        int visibleRows = Math.max(1, availableHeight / rowH);
+
         if (newSel < hotbarScrollRow) {
             hotbarScrollRow = newSel;
         } else if (newSel >= hotbarScrollRow + visibleRows) {
             hotbarScrollRow = newSel - visibleRows + 1;
         }
-
-        // --- Clamp scroll offset to valid range ---
         hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, totalRows - visibleRows));
 
-        // --- Play sound if enabled ---
+        // 5) Play click sound if enabled
         if (Config.enableSounds() && Minecraft.getInstance().player != null) {
-            Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f);
+            Minecraft.getInstance().player.playSound(
+                    SoundEvents.UI_BUTTON_CLICK.get(),
+                    0.7f,
+                    1.4f
+            );
         }
     }
 
@@ -711,16 +722,21 @@ public class HotbarGuiScreen extends Screen {
     @Override
     public void removed() {
         super.removed();
+        // 1) If the user was dragging, put it back
         if (dragging) {
             sourceHotbar.setSlot(sourceSlotIdx, draggedStack);
-            dragging = false;
+            dragging      = false;
             potentialDrag = false;
-            draggedStack = ItemStack.EMPTY;
+            draggedStack  = ItemStack.EMPTY;
         }
-        // Capture final hotbar state and persist
-        HotbarManager.syncFromGame();
-        HotbarManager.saveHotbars();
+
+        // 2) Persist *virtual* data if needed (no syncFromGame here)
+        if (HotbarManager.isDirty()) {
+            HotbarManager.saveHotbars();
+        }
     }
+
+
 
 
 

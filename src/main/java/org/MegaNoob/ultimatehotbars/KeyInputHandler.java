@@ -15,7 +15,8 @@ import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraftforge.client.event.ScreenEvent;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -36,6 +37,12 @@ public class KeyInputHandler {
     private static Screen lastScreen = null;
     private static final ItemStack[] lastKnownHotbar = new ItemStack[9];
     private static long lastSyncCheck = 0;
+
+    private static final Logger LOGGER = LogManager.getLogger();
+
+    // ─────── Throttle fields ───────
+    private static long lastTriggerTime = 0L;
+    private static final long TRIGGER_THROTTLE_MS = 100L;
 
     // ---- UNIVERSAL TEXT FIELD FOCUS CHECK ----
     public static boolean isAnyTextFieldFocused() {
@@ -185,7 +192,7 @@ public class KeyInputHandler {
                 clearHeld = true;
                 HotbarManager.syncFromGame();
                 HotbarManager.clearCurrentHotbar();
-                HotbarManager.saveHotbars();
+                HotbarManager.markDirty();
                 HotbarManager.syncToGame();
                 if (Config.enableSounds()) {
                     mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f);
@@ -251,7 +258,7 @@ public class KeyInputHandler {
             if (KeyBindings.CLEAR_HOTBAR.isActiveAndMatches(key)) {
                 HotbarManager.syncFromGame();
                 HotbarManager.clearCurrentHotbar();
-                HotbarManager.saveHotbars();
+                HotbarManager.markDirty();
                 HotbarManager.syncToGame();
                 if (Config.enableSounds() && mc.player != null) {
                     mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f);
@@ -290,65 +297,88 @@ public class KeyInputHandler {
 
 
     private static void triggerKey(int index) {
+        long now = System.currentTimeMillis();
+        if (now - lastTriggerTime < TRIGGER_THROTTLE_MS) {
+            return;  // too soon since last switch
+        }
+        lastTriggerTime = now;
+
         Minecraft mc = Minecraft.getInstance();
         boolean playedSound = false;
         boolean pageChanged = false;
 
-        // --- Hotbar and page counts for logic below ---
         int hotbarCount = HotbarManager.getCurrentPageHotbars().size();
         int pageCount   = HotbarManager.getPageCount();
 
         switch (index) {
-            // - (decrement hotbar)
+            // — hotbar backwards (“-”)
             case 0 -> {
-                HotbarManager.syncFromGame();
                 if (hotbarCount > 1) {
+                    HotbarManager.syncFromGame();
+                    try {
+                        HotbarManager.saveHotbars();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to save current hotbar before switching backwards", e);
+                        return;
+                    }
                     HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
-                    HotbarManager.syncToGame();
                     playedSound = true;
                 }
             }
-            // = (increment hotbar)
+            // — hotbar forwards (“=”)
             case 1 -> {
-                HotbarManager.syncFromGame();
                 if (hotbarCount > 1) {
+                    HotbarManager.syncFromGame();
+                    try {
+                        HotbarManager.saveHotbars();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to save current hotbar before switching forwards", e);
+                        return;
+                    }
                     HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
-                    HotbarManager.syncToGame();
                     playedSound = true;
                 }
             }
-            // Ctrl - (decrement page)
+            // — page backwards (Ctrl + “-”)
             case 2 -> {
-                HotbarManager.syncFromGame();
                 if (pageCount > 1) {
-                    int curr    = HotbarManager.getPage();
-                    int newPage = ((curr - 1) % pageCount + pageCount) % pageCount;
-                    HotbarManager.setPage(newPage, 0);
-                    HotbarManager.syncToGame();
+                    HotbarManager.syncFromGame();
+                    try {
+                        HotbarManager.saveHotbars();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to save page before switching backwards", e);
+                        return;
+                    }
+                    int curr = HotbarManager.getPage();
+                    int prev = ((curr - 1) % pageCount + pageCount) % pageCount;
+                    HotbarManager.setPage(prev, 0);
                     pageChanged = true;
                 }
             }
-            // Ctrl = (increment page)
+            // — page forwards (Ctrl + “=”)
             case 3 -> {
-                HotbarManager.syncFromGame();
                 if (pageCount > 1) {
-                    int curr    = HotbarManager.getPage();
-                    int newPage = ((curr + 1) % pageCount + pageCount) % pageCount;
-                    HotbarManager.setPage(newPage, 0);
-                    HotbarManager.syncToGame();
+                    HotbarManager.syncFromGame();
+                    try {
+                        HotbarManager.saveHotbars();
+                    } catch (Exception e) {
+                        LOGGER.error("Failed to save page before switching forwards", e);
+                        return;
+                    }
+                    int curr = HotbarManager.getPage();
+                    int next = ((curr + 1) % pageCount + pageCount) % pageCount;
+                    HotbarManager.setPage(next, 0);
                     pageChanged = true;
                 }
             }
-            // (Clear hotbar handled elsewhere)
-            // Arrow-based cases removed or repurposed since you’re using keybindings only
         }
 
-        // Update page input if in GUI (for live UI update)
+        // If we’re in the GUI, refresh the name field & list
         if (pageChanged && mc.screen instanceof HotbarGuiScreen gui) {
             gui.updatePageInput();
         }
 
-        // Play feedback sound if enabled
+        // Feedback sound
         if (Config.enableSounds() && mc.player != null && (playedSound || pageChanged)) {
             mc.player.playSound(
                     pageChanged
@@ -360,5 +390,6 @@ public class KeyInputHandler {
         }
     }
 
-
 }
+
+

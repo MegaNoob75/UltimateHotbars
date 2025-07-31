@@ -86,7 +86,9 @@ public class PageListWidget extends ObjectSelectionList<PageListWidget.Entry> {
             if (btn == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                 // --- CRITICAL: Save everything before switching ---
                 HotbarManager.syncFromGame();
-                HotbarManager.saveHotbars();
+                if (HotbarManager.isDirty()) {
+                    HotbarManager.saveHotbars();
+                }
 
                 HotbarManager.setPage(index, 0);
 

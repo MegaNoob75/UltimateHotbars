@@ -19,7 +19,7 @@ public class HotbarManager {
     private static final List<List<Hotbar>> pages     = new ArrayList<>();
     // Holds the display names for each page
     private static final List<String>       pageNames = new ArrayList<>();
-
+    private static boolean dirty = false;
     private static int currentPage   = 0;
     private static int currentHotbar = 0;
     private static int currentSlot   = 0;
@@ -175,14 +175,28 @@ public class HotbarManager {
     public static int getHotbar() { return currentHotbar; }
     public static int getSlot()   { return currentSlot; }
 
+
+
+    public static void markDirty() {
+        dirty = true;
+    }
+
+
+    /** Returns true if there are unsaved changes */
+    public static boolean isDirty() {
+        return dirty;
+    }
+
+
     /** Selects a new page (and clamps the hotbar index), then syncs. */
     public static void setPage(int page, int resetHotbar) {
         currentPage = Mth.clamp(page, 0, pages.size() - 1);
         List<Hotbar> hotbars = pages.get(currentPage);
         currentHotbar = Mth.clamp(resetHotbar, 0, hotbars.size() - 1);
-        lastHotbarSet   = currentHotbar;
+        lastHotbarSet    = currentHotbar;
         lastHotbarSource = "page switch";
         clampHotbarIndex();
+        markDirty();       // ← flag that state has changed
         syncToGame();
     }
 
@@ -194,16 +208,20 @@ public class HotbarManager {
             System.out.println("Blocked setHotbar(" + hb + ") from " + sourceTag);
             return;
         }
+
         List<Hotbar> hotbars = pages.get(currentPage);
         int count = hotbars.size();
         currentHotbar = ((hb % count) + count) % count;
         lastHotbarSet    = currentHotbar;
         lastHotbarSource = sourceTag;
+
         if (!"arrow page switch".equals(sourceTag) && !"page switch".equals(sourceTag)) {
             clampHotbarIndex();
+            markDirty();   // ← flag that state has changed
             syncToGame();
         }
     }
+
 
     /** Defensive clamp: ensure currentHotbar is valid after hotbar/page changes. */
     public static void clampHotbarIndex() {
@@ -250,22 +268,34 @@ public class HotbarManager {
         );
     }
 
+    /**
+     * Pulls whatever the player currently has in their real hotbar
+     * into the current virtual hotbar, and marks it dirty so it can be saved later.
+     */
     public static void syncFromGame() {
         clampHotbarIndex();
         var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
         if (mcPlayer == null) return;
+
         Hotbar vb = getCurrentHotbar();
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             vb.setSlot(i, mcPlayer.getInventory().getItem(i).copy());
         }
-        saveHotbars();
+
+        // Mark that we’ve modified virtual data so saveHotbars() will write it
+        markDirty();
     }
+
 
     // ================================================================
     // Persistence: saveHotbars + loadHotbars include pageNames
     // ================================================================
 
+    /** Persist hotbars **only** if something has changed. */
     public static void saveHotbars() {
+        // ▶️ Skip the write if nothing’s dirty
+        if (!dirty) return;
+
         try {
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
@@ -294,6 +324,9 @@ public class HotbarManager {
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
             HotbarState.saveState(getPage(), getHotbar(), getSlot());
+
+            // ▶️ Clear the dirty flag now that we’ve successfully saved
+            dirty = false;
 
         } catch (Exception e) {
             e.printStackTrace();
