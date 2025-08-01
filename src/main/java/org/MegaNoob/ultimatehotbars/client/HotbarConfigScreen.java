@@ -8,14 +8,20 @@ import net.minecraft.client.gui.components.CycleButton;
 import net.minecraft.client.gui.components.AbstractWidget;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
-import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-
+import net.minecraftforge.fml.loading.FMLPaths;
+import java.io.File;
+import net.minecraft.client.gui.screens.ConfirmScreen;
 import org.MegaNoob.ultimatehotbars.Config;
+import java.io.File;
+import net.minecraftforge.fml.loading.FMLPaths;
+import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.screens.ConfirmScreen;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -101,23 +107,57 @@ public class HotbarConfigScreen extends Screen {
 
         // --- Scroll Throttle Option ---
         // Explanation, line 1
-        generalWidgets.add(new AbstractWidget(width/2-120, y, 240, 20,
+        generalWidgets.add(new AbstractWidget(width/2 - 120, y, 240, 20,
                 Component.literal("Scroll Throttle (ms): minimum 10 ms")) {
-            @Override protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
-                g.drawString(Minecraft.getInstance().font, getMessage().getString(), getX(), getY(), 0xFFFFFF, false);
+            @Override
+            protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
+                // center in the 240px widget:
+                g.drawCenteredString(
+                        Minecraft.getInstance().font,
+                        getMessage().getString(),
+                        getX() + getWidth()/2,
+                        getY(),
+                        0xFFFFFF
+                );
             }
             @Override protected void updateWidgetNarration(NarrationElementOutput n) {}
         });
         y += 20;
-        // Explanation, line 2
-        generalWidgets.add(new AbstractWidget(width/2-120, y, 240, 20,
+
+// Explanation, line 2
+        generalWidgets.add(new AbstractWidget(width/2 - 120, y, 240, 20,
                 Component.literal("default 50 ms, maximum 150 ms")) {
-            @Override protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
-                g.drawString(Minecraft.getInstance().font, getMessage().getString(), getX(), getY(), 0xFFFFFF, false);
+            @Override
+            protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
+                g.drawCenteredString(
+                        Minecraft.getInstance().font,
+                        getMessage().getString(),
+                        getX() + getWidth()/2,
+                        getY(),
+                        0xFFFFFF
+                );
             }
             @Override protected void updateWidgetNarration(NarrationElementOutput n) {}
         });
         y += 24;
+
+// Explanation, line 3
+        generalWidgets.add(new AbstractWidget(width/2 - 120, y, 240, 20,
+                Component.literal("Adjust only if you see duplicates or want to test faster scroll")) {
+            @Override
+            protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
+                g.drawCenteredString(
+                        Minecraft.getInstance().font,
+                        getMessage().getString(),
+                        getX() + getWidth()/2,
+                        getY(),
+                        0xFFFFFF
+                );
+            }
+            @Override protected void updateWidgetNarration(NarrationElementOutput n) {}
+        });
+        y += 28;
+
         // Throttle slider
         generalWidgets.add(new AbstractSliderButton(width/2-100, y, 200, 20,
                 Component.literal("Scroll Throttle: " + Config.getScrollThrottleMs() + " ms"),
@@ -161,34 +201,72 @@ public class HotbarConfigScreen extends Screen {
         renderTabContent();
     }
 
-    private void renderTabContent() {
+
+   protected void renderTabContent() {
         clearWidgets();
         int yOffset = (currentTab == Tab.COLORS) ? -scrollOffset : 0;
 
-        addRenderableWidget(Button.builder(Component.literal("General"), b->{
-            currentTab = Tab.GENERAL; scrollOffset = 0; renderTabContent();
-        }).bounds(width/2-100, 20+yOffset, 98, 20).build());
+        // — Tab buttons —
+        addRenderableWidget(Button.builder(Component.literal("General"), b -> {
+            currentTab = Tab.GENERAL;
+            scrollOffset = 0;
+            renderTabContent();
+        }).bounds(width/2 - 100, 20 + yOffset, 98, 20).build());
+        addRenderableWidget(Button.builder(Component.literal("Colors"), b -> {
+            currentTab = Tab.COLORS;
+            scrollOffset = 0;
+            renderTabContent();
+        }).bounds(width/2 + 2, 20 + yOffset, 98, 20).build());
 
-        addRenderableWidget(Button.builder(Component.literal("Colors"), b->{
-            currentTab = Tab.COLORS; scrollOffset = 0; renderTabContent();
-        }).bounds(width/2+2, 20+yOffset, 98, 20).build());
-
+        // — Content for each tab —
         if (currentTab == Tab.GENERAL) {
             generalWidgets.forEach(this::addRenderableWidget);
         } else {
-            colorWidgets.forEach(w->{
+            colorWidgets.forEach(w -> {
                 w.setY(w.getY() - scrollOffset);
                 addRenderableWidget(w);
             });
         }
 
-        addRenderableWidget(Button.builder(Component.literal("Done"), b->onClose())
-                .bounds(10, height-30, 100, 20).build());
+        // — Done button —
+        addRenderableWidget(Button.builder(Component.literal("Done"), b -> onClose())
+                .bounds(10, height - 30, 100, 20).build());
 
-        addRenderableWidget(Button.builder(Component.literal("Reset to Defaults"), b->{
-            Config.resetToDefaults(); init();
-        }).bounds(width-110, height-30, 100, 20).build());
+        // — Purge Data Files button (above Reset) —
+       addRenderableWidget(Button.builder(Component.literal("Purge Data Files"), b -> {
+           this.minecraft.setScreen(new ConfirmScreen(
+                   result -> {
+                       if (result) {
+                           File cfg = FMLPaths.CONFIGDIR.get().toFile();
+                           new File(cfg, "ultimatehotbars_hotbars.dat").delete();
+                           new File(cfg, "ultimatehotbars_state.dat").delete();
+                           new File(cfg, "ultimatehotbars-client.toml").delete();
+                           Minecraft.getInstance().player.displayClientMessage(
+                                   Component.literal("UltimateHotbars data wiped – please restart your game."),
+                                   false
+                           );
+                       }
+                       // In both cases (OK or Cancel), return here:
+                       this.minecraft.setScreen(this);
+                   },
+                   Component.literal("Confirm Purge"),                   // title
+                   Component.literal("Delete all UltimateHotbars data files?"), // message
+                   Component.literal("OK"),                              // yes button
+                   Component.literal("Cancel")                           // no button
+           ));
+       }).bounds(width - 110, height - 60, 100, 20).build());
+        // — Reset to Defaults button —
+        addRenderableWidget(Button.builder(Component.literal("Reset to Defaults"), b -> {
+            Config.resetToDefaults();
+            init();
+        }).bounds(width - 110, height - 30, 100, 20).build());
     }
+
+
+
+
+
+
 
     private void addColorSliders(List<AbstractWidget> list, String groupTitle, float[] rgba, Consumer<float[]> updateTarget) {
         int x = width/2 - 100;
@@ -359,11 +437,34 @@ public class HotbarConfigScreen extends Screen {
 
     @Override
     public void render(GuiGraphics gui, int mx, int my, float pt) {
+        // 1) Background and title
         renderBackground(gui);
         int titleY = 10 + (currentTab == Tab.COLORS ? -scrollOffset : 0);
         gui.drawCenteredString(font, title, width/2, titleY, 0xFFFFFF);
+
+        // 2) Draw all standard widgets, buttons, etc.
         super.render(gui, mx, my, pt);
+
+        // 3) Draw the pulsating red border around “Purge Data Files” when on GENERAL tab
+        if (currentTab == Tab.GENERAL) {
+            int x = width  - 110;
+            int y = height -  60;
+            int w = 100;
+            int h =  20;
+
+            // compute an alpha that smoothly moves between 50 and 255
+            float cycle = (System.currentTimeMillis() % 1000L) / 1000f;
+            int alpha = 50 + (int)((Math.sin(cycle * 2 * Math.PI) * 0.5 + 0.5) * 205);
+            int color = (alpha << 24) | 0xFF0000; // red with that alpha
+
+            // draw a 1px border
+            gui.fill(x,         y,       x + w,     y + 1,    color); // top
+            gui.fill(x,         y + h - 1, x + w,     y + h,    color); // bottom
+            gui.fill(x,         y,       x + 1,     y + h,    color); // left
+            gui.fill(x + w - 1, y,       x + w,     y + h,    color); // right
+        }
     }
+
 
     @Override
     public void onClose() {
