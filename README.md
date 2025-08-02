@@ -1,11 +1,13 @@
 # UltimateHotbars
 
+<img width="942" height="604" alt="Screenshot 2025-08-02 080257" src="https://github.com/user-attachments/assets/a11bd939-e73d-4933-90fa-dc805320baab" />
 <img width="954" height="646" alt="2025-08-01_18 42 08" src="https://github.com/user-attachments/assets/c4915706-dd42-4dd4-a9c3-57c3a2ad357c" />
 <img width="954" height="646" alt="2025-08-01_18 42 34" src="https://github.com/user-attachments/assets/b65cbc38-751e-4eb1-a8d0-67463d239686" />
 <img width="954" height="646" alt="2025-08-01_18 42 13" src="https://github.com/user-attachments/assets/ddf5fe5a-c68f-48a5-ae8f-0d44c4151149" />
 <img width="954" height="646" alt="2025-08-01_18 42 19" src="https://github.com/user-attachments/assets/515ec121-3382-4dab-864f-e2d4e5a233d1" />
 <img width="954" height="646" alt="2025-08-01_18 42 50" src="https://github.com/user-attachments/assets/6a11f979-caf2-41f6-9e71-2d756262f76a" />
-<img width="954" height="646" alt="2025-08-01_18 43 05" src="https://github.com/user-attachments/assets/896a3970-c31e-4fe2-8bde-797a821f824d" />
+
+
 
 **UltimateHotbars** is a Minecraft Forge mod (1.20.1 / Forge) that gives you virtually unlimited custom hotbars and pages. Easily switch between them in-game or in any inventory screen, save and restore layouts, and keep your tools, and resources organized!
 
