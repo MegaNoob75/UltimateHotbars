@@ -22,6 +22,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import org.MegaNoob.ultimatehotbars.HotbarManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -237,22 +238,21 @@ public class HotbarConfigScreen extends Screen {
            this.minecraft.setScreen(new ConfirmScreen(
                    result -> {
                        if (result) {
-                           File cfg = FMLPaths.CONFIGDIR.get().toFile();
-                           new File(cfg, "ultimatehotbars_hotbars.dat").delete();
-                           new File(cfg, "ultimatehotbars_state.dat").delete();
-                           new File(cfg, "ultimatehotbars-client.toml").delete();
+                           // instead of manual file‐deletion, call the new reset helper:
+                           HotbarManager.resetAllHotbars();
+
+                           // Inform the user
                            Minecraft.getInstance().player.displayClientMessage(
-                                   Component.literal("UltimateHotbars data wiped – please restart your game."),
-                                   false
+                                   Component.literal("All hotbars wiped and reset."), false
                            );
                        }
-                       // In both cases (OK or Cancel), return here:
+                       // Return to this screen either way
                        this.minecraft.setScreen(this);
                    },
-                   Component.literal("Confirm Purge"),                   // title
-                   Component.literal("Delete all UltimateHotbars data files?"), // message
-                   Component.literal("OK"),                              // yes button
-                   Component.literal("Cancel")                           // no button
+                   Component.literal("Confirm Purge"),
+                   Component.literal("Delete all UltimateHotbars data files?"),
+                   Component.literal("OK"),
+                   Component.literal("Cancel")
            ));
        }).bounds(width - 110, height - 60, 100, 20).build());
         // — Reset to Defaults button —

@@ -416,4 +416,23 @@ public class HotbarManager {
             e.printStackTrace();
         }
     }
+
+    public static void resetAllHotbars() {
+        // Clear existing data
+        pages.clear();
+        pageNames.clear();
+        currentPage   = 0;
+        currentHotbar = 0;
+        currentSlot   = 0;
+
+        // Create one default page (uses addPageInternal, which also calls saveHotbars)
+        addPageInternal();
+
+        // Force a write of the new empty structure
+        saveHotbars();
+
+        // Push that empty hotbar to the player
+        syncToGame();
+    }
+
 }
