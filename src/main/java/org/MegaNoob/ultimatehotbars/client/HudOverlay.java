@@ -46,7 +46,7 @@ public class HudOverlay {
         // **NEW**: lookup the custom page name
         String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
         // build the label: "<CustomPageName>  Hotbar: <1-9>"
-        String label = pageName + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
+        String label = pageName + " / Hotbar - " + (HotbarManager.getHotbar() + 1);
 
         int textWidth  = font.width(label);
         int centerX    = (sw - textWidth) / 2;
@@ -97,7 +97,7 @@ public class HudOverlay {
 
         // **NEW**: use the custom page name instead of "Page: X"
         String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
-        String label    = pageName + "  Hotbar: " + (HotbarManager.getHotbar() + 1);
+        String label    = pageName + " / Hotbar - " + (HotbarManager.getHotbar() + 1);
 
         int labelX = container.getGuiLeft() - 10 - font.width(label);
         int labelY = container.getGuiTop() + container.getYSize() - 24;
