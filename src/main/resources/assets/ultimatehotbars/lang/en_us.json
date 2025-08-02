@@ -13,5 +13,7 @@
   "key.ultimatehotbars.arrow_left": "GUI: Previous Page (←)",
   "key.ultimatehotbars.arrow_right": "GUI: Next Page (→)",
   "key.ultimatehotbars.arrow_up": "GUI: Scroll Up A Hotbar (↑)",
-  "key.ultimatehotbars.arrow_down": "GUI: Scroll Down A Hotbar  (↓)"
+  "key.ultimatehotbars.arrow_down": "GUI: Scroll Down A Hotbar  (↓)",
+
+  "key.ultimatehotbars.peek_hotbars": "Peek Hotbars"
 }

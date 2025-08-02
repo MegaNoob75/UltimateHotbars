@@ -29,6 +29,19 @@ public class KeyBindings {
                     "key.categories.ultimatehotbars"
             );
 
+    // Alt peek: while held, show all hotbars from the current page in the HUD
+    public static final KeyMapping PEEK_HOTBARS =
+            new KeyMapping(
+                    "key.ultimatehotbars.peek_hotbars",
+                    KeyConflictContext.UNIVERSAL,  // active anywhere
+                    KeyModifier.NONE,              // no modifier
+                    InputConstants.Type.KEYSYM,
+                    GLFW.GLFW_KEY_LEFT_ALT,        // Alt by default
+                    "key.categories.ultimatehotbars"
+            );
+
+
+
     public static final KeyMapping INCREASE_HOTBAR =
             new KeyMapping(
                     "key.ultimatehotbars.inc_hotbar",
@@ -91,5 +104,6 @@ public class KeyBindings {
         event.register(INCREASE_PAGE);
         event.register(OPEN_GUI);
         event.register(CLEAR_HOTBAR);
+        event.register(PEEK_HOTBARS);
     }
 }

@@ -27,7 +27,7 @@ public class ultimatehotbars {
         modBus.addListener(this::onClientSetup);
 
         // Register key bindings during RegisterKeyMappingsEvent
-        modBus.addListener(KeyBindings::register);
+       // modBus.addListener(KeyBindings::register);
 
         // Register client event handlers (ticks, GUI, etc.)
         MinecraftForge.EVENT_BUS.register(new ClientEvents());
