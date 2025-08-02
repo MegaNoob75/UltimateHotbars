@@ -8,6 +8,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
+import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.client.KeyBindings;
@@ -20,11 +21,8 @@ import org.lwjgl.glfw.GLFW;
 import java.util.List;
 
 /**
- * While open:
- *  • Renders all hotbar rows above the vanilla bar
- *  • mouseScrolled → pages through rows
- *  • mouseClicked → picks a slot & hotbar
- *  • Checks raw key state in render(), and auto-closes on Alt release
+ * Transparent screen that displays all hotbar rows when the peek key is held.
+ * Supports scrolling, clicking, hover highlighting, and a scrollbar indicator.
  */
 @Mod.EventBusSubscriber(
         modid = ultimatehotbars.MODID,
@@ -41,16 +39,15 @@ public class PeekHotbarScreen extends Screen {
     }
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float pt) {
+    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTicks) {
         Minecraft mc = Minecraft.getInstance();
         long window = mc.getWindow().getWindow();
-        // If Alt is released, close this screen immediately:
+        // Auto-close when peek key is released
         if (!InputConstants.isKeyDown(window, KeyBindings.PEEK_HOTBARS.getKey().getValue())) {
             mc.setScreen(null);
             return;
         }
 
-        // Draw peeked hotbars above the vanilla bar:
         int sw = mc.getWindow().getGuiScaledWidth();
         int sh = mc.getWindow().getGuiScaledHeight();
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
@@ -62,11 +59,23 @@ public class PeekHotbarScreen extends Screen {
             int startX = (sw - bgW) / 2;
             int firstY = sh - 22 - 10 - visible * rowH;
 
+            // Draw each row
             for (int i = 0; i < visible; i++) {
                 int y = firstY + i * rowH;
-                // background strip
+                // Background strip
                 g.blit(HOTBAR_TEX, startX - border, y - 3, 0, 0, bgW, rowH);
-                // items
+
+                // Hover highlight
+                if (mouseY >= y - 3 && mouseY < y - 3 + rowH) {
+                    float[] hc = Config.highlightColor();
+                    int color = ((int)(hc[3] * 255) << 24)
+                            | ((int)(hc[0] * 255) << 16)
+                            | ((int)(hc[1] * 255) << 8)
+                            |  (int)(hc[2] * 255);
+                    g.fill(startX - border, y - 3, startX - border + bgW, y - 3 + rowH, color);
+                }
+
+                // Items
                 Hotbar hb = pageHotbars.get(peekScrollRow + i);
                 for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
                     ItemStack stack = hb.getSlot(s);
@@ -75,18 +84,33 @@ public class PeekHotbarScreen extends Screen {
                     g.renderItemDecorations(mc.font, stack, x, y);
                 }
             }
+
+            // Scrollbar indicator
+            if (total > visible) {
+                int trackX = (sw - bgW) / 2 + bgW + 2;
+                int trackY = firstY;
+                int trackH = visible * rowH;
+                int trackW = 4;
+                // Track background
+                g.fill(trackX, trackY, trackX + trackW, trackY + trackH, 0x44000000);
+                // Thumb
+                float ratio = (float) visible / total;
+                int thumbH = Math.max(1, (int)(ratio * trackH));
+                float scrollRatio = peekScrollRow / (float)(total - visible);
+                int thumbY = trackY + (int)(scrollRatio * (trackH - thumbH));
+                g.fill(trackX, thumbY, trackX + trackW, thumbY + thumbH, 0xFFFFFFFF);
+            }
         }
 
-        super.render(g, mouseX, mouseY, pt);
+        super.render(g, mouseX, mouseY, partialTicks);
     }
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        // Change page of hotbar rows
         int total = HotbarManager.getCurrentPageHotbars().size();
         int visible = Math.min(total, MAX_ROWS);
         peekScrollRow = Math.max(0, Math.min(peekScrollRow - (int)Math.signum(delta), total - visible));
-        return true; // consume
+        return true;
     }
 
     @Override
