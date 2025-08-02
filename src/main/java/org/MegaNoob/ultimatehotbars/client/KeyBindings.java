@@ -64,12 +64,13 @@ public class KeyBindings {
     public static final KeyMapping OPEN_GUI =
             new KeyMapping(
                     "key.ultimatehotbars.open_gui",
-                    KeyConflictContext.IN_GAME,
+                    KeyConflictContext.UNIVERSAL,     // now active in-game and in-GUI
                     KeyModifier.NONE,
                     InputConstants.Type.KEYSYM,
                     GLFW.GLFW_KEY_H,
                     "key.categories.ultimatehotbars"
             );
+
 
     // --- Clear hotbar (Delete), UNIVERSAL so you can clear anywhere ---
     public static final KeyMapping CLEAR_HOTBAR =
