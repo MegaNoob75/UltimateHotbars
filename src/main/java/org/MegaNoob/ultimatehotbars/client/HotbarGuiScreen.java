@@ -3,6 +3,7 @@ package org.MegaNoob.ultimatehotbars.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -671,6 +672,42 @@ public class HotbarGuiScreen extends Screen {
         if (dragging && !draggedStack.isEmpty()) {
             graphics.renderItem(draggedStack, mouseX, mouseY);
             graphics.renderItemDecorations(this.font, draggedStack, mouseX, mouseY);
+        }
+        // Draw the page/hotbar label at the same spot as your HUD
+        if (Config.showHudLabel) {
+            Minecraft mc = Minecraft.getInstance();
+            Font font = this.font;
+
+            // Build label: "<CustomPageName> / Hotbar - <1-9>"
+            String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
+            String label    = pageName + " / Hotbar - " + (HotbarManager.getHotbar() + 1);
+            int textWidth   = font.width(label);
+
+            // Screen dimensions
+            int sw = mc.getWindow().getGuiScaledWidth();
+            int sh = mc.getWindow().getGuiScaledHeight();
+
+            // Center-bottom coords (35px up)
+            int x = (sw - textWidth) / 2;
+            int y = sh - 35;
+
+            // Optional semi-transparent background
+            if (Config.showHudLabelBackground) {
+                float[] bg = Config.hudLabelBackgroundColor;
+                int bgColor = ((int)(bg[3] * 255) << 24)
+                        | ((int)(bg[0] * 255) << 16)
+                        | ((int)(bg[1] * 255) <<  8)
+                        |  (int)(bg[2] * 255);
+                graphics.fill(x - 4, y - 2, x + textWidth + 4, y + 10, bgColor);
+            }
+
+            // Text
+            float[] tc = Config.hudLabelTextColor;
+            int color = ((int)(tc[3] * 255) << 24)
+                    | ((int)(tc[0] * 255) << 16)
+                    | ((int)(tc[1] * 255) <<  8)
+                    |  (int)(tc[2] * 255);
+            graphics.drawString(font, label, x, y, color, true);
         }
     }
 

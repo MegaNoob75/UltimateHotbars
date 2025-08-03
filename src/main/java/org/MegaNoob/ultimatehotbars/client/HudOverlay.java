@@ -90,21 +90,47 @@ public class HudOverlay {
     @SubscribeEvent
     public static void renderGuiSideLabel(ScreenEvent.Render.Post event) {
         Screen screen = event.getScreen();
-        if (!(screen instanceof AbstractContainerScreen<?> container)) return;
+        if (!(screen instanceof AbstractContainerScreen<?>)) {
+            return;
+        }
+        if (!Config.showHudLabel) {
+            return;
+        }
 
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
+        GuiGraphics graphics = event.getGuiGraphics();
 
-        // **NEW**: use the custom page name instead of "Page: X"
+        // build your label
         String pageName = HotbarManager.getPageNames().get(HotbarManager.getPage());
         String label    = pageName + " / Hotbar - " + (HotbarManager.getHotbar() + 1);
+        int textWidth   = font.width(label);
 
-        int labelX = container.getGuiLeft() - 10 - font.width(label);
-        int labelY = container.getGuiTop() + container.getYSize() - 24;
+        // center-bottom coords (35px up)
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        int x  = (sw - textWidth) / 2;
+        int y  = sh - 35;
 
-        GuiGraphics graphics = event.getGuiGraphics();
-        graphics.drawString(font, label, labelX, labelY, 0xFFFFFF, true);
+        // optional background
+        if (Config.showHudLabelBackground) {
+            float[] bg = Config.hudLabelBackgroundColor;
+            int bgColor = ((int)(bg[3]*255)<<24)
+                    | ((int)(bg[0]*255)<<16)
+                    | ((int)(bg[1]*255)<< 8)
+                    |  (int)(bg[2]*255);
+            graphics.fill(x - 4, y - 2, x + textWidth + 4, y + 10, bgColor);
+        }
+
+        // text color
+        float[] tc = Config.hudLabelTextColor;
+        int color = ((int)(tc[3]*255)<<24)
+                | ((int)(tc[0]*255)<<16)
+                | ((int)(tc[1]*255)<< 8)
+                |  (int)(tc[2]*255);
+        graphics.drawString(font, label, x, y, color, true);
     }
+
 
 
     private static void drawDebugOverlay(GuiGraphics graphics, Font font, Minecraft mc, String contextLabel) {
