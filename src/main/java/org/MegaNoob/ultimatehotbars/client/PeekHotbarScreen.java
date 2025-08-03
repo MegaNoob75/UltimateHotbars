@@ -12,7 +12,6 @@ import net.minecraft.world.item.ItemStack;
 import org.MegaNoob.ultimatehotbars.Config;
 import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
-import org.MegaNoob.ultimatehotbars.client.KeyBindings;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.common.Mod;

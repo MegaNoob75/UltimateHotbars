@@ -6,7 +6,6 @@ import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.event.TickEvent.ClientTickEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import org.MegaNoob.ultimatehotbars.client.KeyBindings;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 
 /**

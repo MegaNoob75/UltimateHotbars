@@ -9,9 +9,6 @@ import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.common.MinecraftForge;
 import org.MegaNoob.ultimatehotbars.client.ClientEvents;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
-import org.MegaNoob.ultimatehotbars.client.KeyBindings;
-import org.MegaNoob.ultimatehotbars.Config;
-import org.MegaNoob.ultimatehotbars.HotbarManager;
 
 @Mod(ultimatehotbars.MODID)
 public class ultimatehotbars {

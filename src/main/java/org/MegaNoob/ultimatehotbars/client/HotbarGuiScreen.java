@@ -22,7 +22,6 @@ import net.minecraft.world.item.ItemStack;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import java.util.List;
-import org.MegaNoob.ultimatehotbars.Hotbar;
 
 public class HotbarGuiScreen extends Screen {
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
