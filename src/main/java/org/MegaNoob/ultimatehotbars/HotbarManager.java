@@ -8,10 +8,13 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.nbt.NbtIo;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 import org.MegaNoob.ultimatehotbars.network.SyncHotbarPacket;
-
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+
 
 public class HotbarManager {
 
@@ -336,16 +339,17 @@ public class HotbarManager {
     // Persistence: saveHotbars + loadHotbars include pageNames
     // ================================================================
 
-    /** Persist hotbars **only** if something has changed. */
+
+
+    /** Persist hotbars **only** if something has changed, via an atomic write. */
     public static void saveHotbars() {
         // ▶️ Skip the write if nothing’s dirty
         if (!dirty) return;
 
         try {
+            // 1) Build up your NBT structure
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
-
-            // Save each hotbar slot
             for (int pi = 0; pi < pages.size(); pi++) {
                 List<Hotbar> page = pages.get(pi);
                 for (int hi = 0; hi < page.size(); hi++) {
@@ -355,16 +359,32 @@ public class HotbarManager {
             }
             root.put("HotbarsMap", map);
 
-            // Save pageNames
             CompoundTag namesTag = new CompoundTag();
             for (int i = 0; i < pageNames.size(); i++) {
                 namesTag.putString(String.valueOf(i), pageNames.get(i));
             }
             root.put("PageNames", namesTag);
 
-            NbtIo.write(root, SAVE_FILE);
+            // 2) Ensure parent directory exists
+            File parentDir = SAVE_FILE.getAbsoluteFile().getParentFile();
+            if (!parentDir.exists() && !parentDir.mkdirs()) {
+                System.err.println("[UltimateHotbars] Failed to create save directory: " + parentDir);
+            }
 
-            // Debug tracking
+            // 3) Write to a .tmp file first
+            Path savePath = SAVE_FILE.toPath();
+            Path tmpPath  = savePath.resolveSibling(SAVE_FILE.getName() + ".tmp");
+            NbtIo.write(root, tmpPath.toFile());
+
+            // 4) Atomically replace the old file
+            Files.move(
+                    tmpPath,
+                    savePath,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+
+            // 5) Debug tracking & state dump
             lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
@@ -374,9 +394,11 @@ public class HotbarManager {
             dirty = false;
 
         } catch (Exception e) {
+            System.err.println("[UltimateHotbars] Error saving hotbars:");
             e.printStackTrace();
         }
     }
+
 
     public static void loadHotbars() {
         if (!SAVE_FILE.exists()) {
