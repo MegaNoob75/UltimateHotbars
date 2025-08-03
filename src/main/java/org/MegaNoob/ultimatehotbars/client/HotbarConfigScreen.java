@@ -12,21 +12,15 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import net.minecraftforge.fml.loading.FMLPaths;
-import java.io.File;
+import java.util.stream.IntStream;
+import java.util.stream.Collectors;
 import net.minecraft.client.gui.screens.ConfirmScreen;
 import org.MegaNoob.ultimatehotbars.Config;
-import java.io.File;
-import net.minecraftforge.fml.loading.FMLPaths;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.ConfirmScreen;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.network.chat.Component;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+
 
 public class HotbarConfigScreen extends Screen {
     private final Screen parent;
@@ -176,6 +170,25 @@ public class HotbarConfigScreen extends Screen {
         });
         y += 24;
         // --- End Scroll Throttle Option ---
+
+
+        // Peek Hotbar Rows setting
+        generalWidgets.add(
+                CycleButton.<Integer>builder(i -> Component.literal(i + " rows"))
+                        .withValues(IntStream.rangeClosed(1, 20).boxed().collect(Collectors.toList()))
+                        .withInitialValue(Config.peekVisibleRows())
+                        .create(
+                                width/2 - 100, y, 200, 20,
+                                Component.literal("Peek Hotbar Rows: "),
+                                (btn, val) -> {
+                                    Config.PEEK_ROWS.set(val);
+                                    Config.SPEC.save();
+                                }
+                        )
+        );
+        y += 24;
+
+
 
         // Color sliders & previews
         addColorSliders(colorWidgets, "Highlighted Hotbar", Config.highlightColor(), arr->{

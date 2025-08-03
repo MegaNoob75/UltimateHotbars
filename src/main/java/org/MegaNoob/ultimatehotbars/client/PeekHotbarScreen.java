@@ -27,7 +27,6 @@ import java.util.List;
 )
 public class PeekHotbarScreen extends Screen {
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
-    private static final int MAX_ROWS = 5;
     private static final int CELL = 20;
     private static final int BORDER = 1;
     private static final int ROW_H = CELL + 2;
@@ -58,15 +57,18 @@ public class PeekHotbarScreen extends Screen {
             return;
         }
 
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int sh = mc.getWindow().getGuiScaledHeight();
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
         if (bars.isEmpty()) return;
 
+        int rows = Config.peekVisibleRows();
         int totalBars = bars.size();
+        int visible = Math.min(totalBars, rows);
+
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int firstY = sh - 60 - (MAX_ROWS - 1) * ROW_H;
-        int areaH = MAX_ROWS * ROW_H;
+        int firstY = sh - 60 - (rows - 1) * ROW_H;
+        int areaH = rows * ROW_H;
 
         int baseHbX = (sw - bgW) / 2 + BORDER;
         int numX = baseHbX - BORDER - GAP - NUM_COL_W;
@@ -94,7 +96,6 @@ public class PeekHotbarScreen extends Screen {
         }
 
         // Scroll arrows
-        int visible = Math.min(totalBars, MAX_ROWS);
         if (peekScrollRow > 0) {
             String up = "▲";
             int ux = numX + (NUM_COL_W - font.width(up)) / 2;
@@ -141,10 +142,10 @@ public class PeekHotbarScreen extends Screen {
 
         List<String> pages = HotbarManager.getPageNames();
         int count = pages.size();
-        int maxScroll = Math.max(0, count - MAX_ROWS);
-        pageScrollRow = Mth.clamp(pageScrollRow, 0, maxScroll);
+        int pageMax = Math.max(0, count - rows);
+        pageScrollRow = Mth.clamp(pageScrollRow, 0, pageMax);
         int selected = HotbarManager.getPage();
-        for (int i = 0; i < MAX_ROWS; i++) {
+        for (int i = 0; i < rows; i++) {
             int idx = pageScrollRow + i;
             if (idx >= count) break;
             int y = firstY + i * ROW_H;
@@ -160,9 +161,9 @@ public class PeekHotbarScreen extends Screen {
             }
             g.drawString(font, name, listX + 2, y, 0xFFFFFF);
         }
-        if (count > MAX_ROWS) {
-            int thumbH = Math.max((listH * MAX_ROWS) / count, 10);
-            int thumbY = topY + (pageScrollRow * (listH - thumbH)) / maxScroll;
+        if (count > rows) {
+            int thumbH = Math.max((listH * rows) / count, 10);
+            int thumbY = topY + (pageScrollRow * (listH - thumbH)) / pageMax;
             g.fill(trackX, thumbY, trackX + 4, thumbY + thumbH, 0xAAFFFFFF);
         }
 
@@ -179,19 +180,22 @@ public class PeekHotbarScreen extends Screen {
         int sw = mc.getWindow().getGuiScaledWidth();
         int sh = mc.getWindow().getGuiScaledHeight();
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
+
+        int rows = Config.peekVisibleRows();
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
         int baseHbX = (sw - bgW) / 2 + BORDER;
         int listX = baseHbX + bgW + GAP;
-        int firstY = sh - 60 - (MAX_ROWS - 1) * ROW_H;
+        int firstY = sh - 60 - (rows - 1) * ROW_H;
         int topY = firstY - 3;
-        int listH = MAX_ROWS * ROW_H;
+        int listH = rows * ROW_H;
+
         if (mx >= listX && mx < listX + LIST_W && my >= topY && my < topY + listH) {
             int count = HotbarManager.getPageNames().size();
-            int maxScr = Math.max(0, count - MAX_ROWS);
-            pageScrollRow = Mth.clamp(pageScrollRow - (int) Math.signum(delta), 0, maxScr);
+            int pageMax = Math.max(0, count - rows);
+            pageScrollRow = Mth.clamp(pageScrollRow - (int)Math.signum(delta), 0, pageMax);
         } else {
-            int visible = Math.min(bars.size(), MAX_ROWS);
-            peekScrollRow = Mth.clamp(peekScrollRow - (int) Math.signum(delta), 0, bars.size() - visible);
+            int visible = Math.min(bars.size(), rows);
+            peekScrollRow = Mth.clamp(peekScrollRow - (int)Math.signum(delta), 0, bars.size() - visible);
         }
         return true;
     }
@@ -205,9 +209,10 @@ public class PeekHotbarScreen extends Screen {
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
         if (bars.isEmpty()) return true;
 
+        int rows = Config.peekVisibleRows();
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int firstY = sh - 60 - (MAX_ROWS - 1) * ROW_H;
-        int areaH = MAX_ROWS * ROW_H;
+        int firstY = sh - 60 - (rows - 1) * ROW_H;
+        int areaH = rows * ROW_H;
         int baseHbX = (sw - bgW) / 2 + BORDER;
         int numX = baseHbX - BORDER - GAP - NUM_COL_W;
         int deleteX = numX - GAP - DELETE_BOX_W;
@@ -216,7 +221,7 @@ public class PeekHotbarScreen extends Screen {
         int listH = areaH;
 
         if (mx >= listX && mx < listX + LIST_W && my >= topY && my < topY + listH) {
-            int clicked = pageScrollRow + (int) ((my - topY) / ROW_H);
+            int clicked = pageScrollRow + (int)((my - topY) / ROW_H);
             List<String> pages = HotbarManager.getPageNames();
             if (clicked >= 0 && clicked < pages.size()) {
                 HotbarManager.setPage(clicked, 0);
@@ -227,11 +232,11 @@ public class PeekHotbarScreen extends Screen {
         if (mx >= deleteX && mx < deleteX + DELETE_BOX_W && my >= topY && my < topY + areaH) {
             return true;
         }
-        int visible = Math.min(bars.size(), MAX_ROWS);
+        int visible = Math.min(bars.size(), rows);
         for (int i = 0; i < visible; i++) {
             int row = peekScrollRow + i;
             int y = firstY + i * ROW_H;
-            int relX = (int) (mx - baseHbX);
+            int relX = (int)(mx - baseHbX);
             if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW) {
                 int slot = relX / CELL;
                 ItemStack stack = bars.get(row).getSlot(slot);
@@ -276,20 +281,21 @@ public class PeekHotbarScreen extends Screen {
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
         if (bars.isEmpty()) return super.mouseReleased(mx, my, button);
 
+        int rows = Config.peekVisibleRows();
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int firstY = sh - 60 - (MAX_ROWS - 1) * ROW_H;
-        int areaH = MAX_ROWS * ROW_H;
+        int firstY = sh - 60 - (rows - 1) * ROW_H;
+        int areaH = rows * ROW_H;
         int baseHbX = (sw - bgW) / 2 + BORDER;
         int deleteX = baseHbX - BORDER - GAP - NUM_COL_W - GAP - DELETE_BOX_W;
         int listH = areaH;
         int topY = firstY - 3;
 
         if (!wasDragging) {
-            int visibleCount = Math.min(bars.size(), MAX_ROWS);
+            int visibleCount = Math.min(bars.size(), rows);
             for (int i = 0; i < visibleCount; i++) {
                 int row = peekScrollRow + i;
                 int y = firstY + i * ROW_H;
-                int relX = (int) (mx - baseHbX);
+                int relX = (int)(mx - baseHbX);
                 if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW) {
                     int slot = relX / CELL;
                     HotbarManager.setHotbar(row, "peek-click");
@@ -304,11 +310,11 @@ public class PeekHotbarScreen extends Screen {
         }
 
         boolean handled = false;
-        int visibleCount = Math.min(bars.size(), MAX_ROWS);
+        int visibleCount = Math.min(bars.size(), rows);
         for (int i = 0; i < visibleCount; i++) {
             int row = peekScrollRow + i;
             int y = firstY + i * ROW_H;
-            int relX = (int) (mx - baseHbX);
+            int relX = (int)(mx - baseHbX);
             int slot = relX / CELL;
             if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW
                     && row == sourceRow && slot == sourceSlot) {
@@ -325,7 +331,7 @@ public class PeekHotbarScreen extends Screen {
             for (int i = 0; i < visibleCount; i++) {
                 int row = peekScrollRow + i;
                 int y = firstY + i * ROW_H;
-                int relX = (int) (mx - baseHbX);
+                int relX = (int)(mx - baseHbX);
                 if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW) {
                     int slot = relX / CELL;
                     ItemStack existing = bars.get(row).getSlot(slot);
@@ -346,6 +352,5 @@ public class PeekHotbarScreen extends Screen {
         return true;
     }
 
-    @Override
-    public boolean isPauseScreen() { return false; }
+    @Override public boolean isPauseScreen() { return false; }
 }
