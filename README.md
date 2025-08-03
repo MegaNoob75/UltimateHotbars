@@ -1,6 +1,6 @@
 # UltimateHotbars
 
-<img width="942" height="604" alt="Screenshot 2025-08-02 080257" src="https://github.com/user-attachments/assets/a11bd939-e73d-4933-90fa-dc805320baab" />
+<img width="943" height="604" alt="Screenshot 2025-08-03 070204" src="https://github.com/user-attachments/assets/7b51d08b-bbde-42a1-8f66-e140147ed57c" />
 <img width="954" height="646" alt="2025-08-01_18 42 08" src="https://github.com/user-attachments/assets/c4915706-dd42-4dd4-a9c3-57c3a2ad357c" />
 <img width="954" height="646" alt="2025-08-01_18 42 34" src="https://github.com/user-attachments/assets/b65cbc38-751e-4eb1-a8d0-67463d239686" />
 <img width="954" height="646" alt="2025-08-01_18 42 13" src="https://github.com/user-attachments/assets/ddf5fe5a-c68f-48a5-ae8f-0d44c4151149" />
