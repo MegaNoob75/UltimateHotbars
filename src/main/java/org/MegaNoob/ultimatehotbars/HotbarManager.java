@@ -364,17 +364,29 @@ public class HotbarManager {
     }
 
     public static void loadHotbars() {
-        if (!SAVE_FILE.exists()) return;
+        if (!SAVE_FILE.exists()) {
+            return;
+        }
         try {
             CompoundTag root = NbtIo.read(SAVE_FILE);
-            if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) return;
+            if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) {
+                // malformed or missing → start fresh
+                pages.clear();
+                pageNames.clear();
+                addPageInternal();
+                return;
+            }
+
             CompoundTag map = root.getCompound("HotbarsMap");
 
-            // Determine how many pages were saved
-            int maxIdx    = map.getAllKeys().stream().mapToInt(Integer::parseInt).max().orElse(-1);
+            // Figure out how many pages were saved
+            int maxIdx = map.getAllKeys().stream()
+                    .mapToInt(Integer::parseInt)
+                    .max()
+                    .orElse(-1);
             int pageCount = (maxIdx / Config.getMaxHotbarsPerPage()) + 1;
 
-            // Reinitialize pages & names
+            // Initialize empty pages & names
             pages.clear();
             pageNames.clear();
             for (int pi = 0; pi < pageCount; pi++) {
@@ -382,30 +394,39 @@ public class HotbarManager {
                 pageNames.add("Page " + (pi + 1));
             }
 
-            // Populate hotbars
+            // Populate each saved hotbar
             for (String key : map.getAllKeys()) {
                 int idx = Integer.parseInt(key);
                 int pi  = idx / Config.getMaxHotbarsPerPage();
                 int hi  = idx % Config.getMaxHotbarsPerPage();
                 List<Hotbar> page = pages.get(pi);
+
+                // grow list so index hi is valid
                 while (page.size() <= hi) {
                     page.add(new Hotbar());
                 }
+
+                // ← NAME FIX HERE: use deserializeNBT, not deserialize
                 page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
             }
 
-            // Restore custom page names
-            if (root.contains("PageNames", Tag.TAG_COMPOUND)) {
-                CompoundTag namesTag = root.getCompound("PageNames");
-                for (String k : namesTag.getAllKeys()) {
-                    int pi = Integer.parseInt(k);
-                    if (pi >= 0 && pi < pageNames.size()) {
-                        pageNames.set(pi, namesTag.getString(k));
-                    }
+            // ── NEW: ensure no page remains empty ──
+            for (List<Hotbar> page : pages) {
+                if (page.isEmpty()) {
+                    page.add(new Hotbar());
                 }
             }
 
-            // Restore last-known state
+            // Load any custom page names
+            CompoundTag namesTag = root.getCompound("PageNames");
+            for (String k : namesTag.getAllKeys()) {
+                int pi = Integer.parseInt(k);
+                if (pi >= 0 && pi < pageNames.size()) {
+                    pageNames.set(pi, namesTag.getString(k));
+                }
+            }
+
+            // Restore last-known selection state
             HotbarState.loadState();
             var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
             if (mcPlayer != null) {
@@ -416,6 +437,8 @@ public class HotbarManager {
             e.printStackTrace();
         }
     }
+
+
 
     public static void resetAllHotbars() {
         // Clear existing data
