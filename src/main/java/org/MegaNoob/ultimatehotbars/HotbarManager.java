@@ -194,15 +194,30 @@ public class HotbarManager {
 
     /** Selects a new page (and clamps the hotbar index), then syncs. */
     public static void setPage(int page, int resetHotbar) {
+        // ── SANITY: ensure there's always at least one page ──
+        if (pages.isEmpty()) {
+            addPageInternal();
+        }
+
+        // Clamp requested page to [0, pages.size()-1]
         currentPage = Mth.clamp(page, 0, pages.size() - 1);
+
+        // Grab its hotbar list, and ensure it's never empty
         List<Hotbar> hotbars = pages.get(currentPage);
+        if (hotbars.isEmpty()) {
+            hotbars.add(new Hotbar());
+        }
+
+        // Clamp the resetHotbar into [0, hotbars.size()-1]
         currentHotbar = Mth.clamp(resetHotbar, 0, hotbars.size() - 1);
+
         lastHotbarSet    = currentHotbar;
         lastHotbarSource = "page switch";
+
         clampHotbarIndex();
-        // ← no markDirty() here
         syncToGame();
     }
+
 
     /**
      * Switch to the given hotbar index (hb), wrapping within the current page only.
@@ -456,6 +471,33 @@ public class HotbarManager {
 
         // Push that empty hotbar to the player
         syncToGame();
+    }
+
+    /**
+     * Like syncFromGameIfChanged(), but reads straight from the supplied player
+     * (useful during clone events where the “current” Minecraft.player is already wiped).
+     *
+     * @param player  the source player whose inventory we should snapshot
+     * @return        true if we detected any differences and updated virtual hotbar
+     */
+    public static boolean syncFromPlayerInventory(net.minecraft.world.entity.player.Player player) {
+        clampHotbarIndex();
+        if (player == null) return false;
+
+        Hotbar vb = getCurrentHotbar();
+        boolean changed = false;
+        for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
+            var real = player.getInventory().getItem(i);
+            var virt = vb.getSlot(i);
+            if (!net.minecraft.world.item.ItemStack.matches(virt, real)) {
+                vb.setSlot(i, real.copy());
+                changed = true;
+            }
+        }
+        if (changed) {
+            markDirty();
+        }
+        return changed;
     }
 
 }

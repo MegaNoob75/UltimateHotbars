@@ -14,15 +14,18 @@ public class CommonEvents {
      */
     @SubscribeEvent
     public static void onPlayerClone(PlayerEvent.Clone event) {
+        // only care about actual death, not dimension‐change clones
         if (!event.isWasDeath()) return;
-        if (!event.getEntity().level().isClientSide) return;
+        // make sure our original was client‐side
+        if (event.getOriginal().level().isClientSide == false) return;
 
         System.out.println("[UltimateHotbars] Capturing hotbar before death");
-        // Only copy & mark dirty if the real bar actually changed:
-        if (HotbarManager.syncFromGameIfChanged()) {
+        // Sync from the pre-death player so we don't grab empty inventory
+        if (HotbarManager.syncFromPlayerInventory(event.getOriginal())) {
             HotbarManager.saveHotbars();
         }
     }
+
 
 
     /**
