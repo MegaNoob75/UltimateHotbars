@@ -1,19 +1,27 @@
 package org.MegaNoob.ultimatehotbars;
 
+import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.Mth;
 import net.minecraftforge.fml.loading.FMLPaths;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.nbt.NbtIo;
 import org.MegaNoob.ultimatehotbars.network.PacketHandler;
 import org.MegaNoob.ultimatehotbars.network.SyncHotbarPacket;
-import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import net.minecraft.client.Minecraft;
+import java.io.IOException;
+import net.minecraft.world.level.storage.LevelResource;
+import java.net.SocketAddress;
+
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.network.Connection;
 
 
 public class HotbarManager {
@@ -27,9 +35,6 @@ public class HotbarManager {
     private static int currentHotbar = 0;
     private static int currentSlot   = 0;
 
-    private static final File SAVE_FILE =
-            FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars_hotbars.dat").toFile();
-
     // Debug tracking
     public static String lastHotbarSource = "";
     public static int    lastHotbarSet    = -1;
@@ -38,13 +43,21 @@ public class HotbarManager {
     public static int    lastSavedSlot    = -1;
 
     static {
-        // On class load, either load existing pages, or create one default page
-        if (SAVE_FILE.exists()) {
-            loadHotbars();
-        } else {
+        // on class load, either load existing pages from the per-world file, or create a default page
+        Path file = hotbarsFile();
+        try {
+            if (Files.exists(file)) {
+                loadHotbars();
+            } else {
+                addPageInternal();
+            }
+        } catch (Exception e) {
+            // in case of any IO errors, fall back to a default page
+            e.printStackTrace();
             addPageInternal();
         }
     }
+
 
     // ================================================================
     // Page & Name Management
@@ -335,19 +348,60 @@ public class HotbarManager {
         return changed;
     }
 
-    // ================================================================
-    // Persistence: saveHotbars + loadHotbars include pageNames
-    // ================================================================
+    /**
+     * Returns the world-specific config folder, e.g. ".minecraft/saves/<worldName>"
+     * or falls back to config/ultimatehotbars if no world is loaded.
+     */
+    private static Path getWorldConfigDir() {
+        Minecraft mc = Minecraft.getInstance();
 
+        // singleplayer (integrated server) branch unchanged…
+        MinecraftServer integrated = mc.getSingleplayerServer();
+        if (integrated != null) {
+            Path worldDir = integrated.getWorldPath(LevelResource.ROOT);
+            try { Files.createDirectories(worldDir); }
+            catch (IOException e) { e.printStackTrace(); return FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars"); }
+            return worldDir;
+        }
+
+        // multiplayer branch: use net.minecraft.network.Connection
+        ClientPacketListener handler = mc.getConnection();
+        if (handler != null) {
+            Connection conn = handler.getConnection();          // ← now uses Connection
+            SocketAddress addr = conn.channel().remoteAddress();
+            String folder = addr.toString().replaceAll("[\\\\/:*?\"<>|]", "_");
+            Path cfg = FMLPaths.CONFIGDIR.get()
+                    .resolve("ultimatehotbars")
+                    .resolve(folder);
+            try { Files.createDirectories(cfg); } catch (IOException e) { e.printStackTrace(); }
+            return cfg;
+        }
+
+        // fallback
+        Path cfg = FMLPaths.CONFIGDIR.get().resolve("ultimatehotbars");
+        try { Files.createDirectories(cfg); } catch (IOException ignored) {}
+        return cfg;
+    }
+
+
+
+    /** Where we persist hotbar pages. */
+    private static Path hotbarsFile() {
+        return getWorldConfigDir().resolve("ultimatehotbars_hotbars.dat");
+    }
+
+    /** Where we persist UI state (last page, slot, etc). */
+    private static Path stateFile() {
+        return getWorldConfigDir().resolve("ultimatehotbars_state.dat");
+    }
 
 
     /** Persist hotbars **only** if something has changed, via an atomic write. */
     public static void saveHotbars() {
-        // ▶️ Skip the write if nothing’s dirty
-        if (!dirty) return;
+        if (!dirty) return;  // nothing to do
 
         try {
-            // 1) Build up your NBT structure
+            // 1) Build NBT
             CompoundTag root = new CompoundTag();
             CompoundTag map  = new CompoundTag();
             for (int pi = 0; pi < pages.size(); pi++) {
@@ -365,32 +419,24 @@ public class HotbarManager {
             }
             root.put("PageNames", namesTag);
 
-            // 2) Ensure parent directory exists
-            File parentDir = SAVE_FILE.getAbsoluteFile().getParentFile();
-            if (!parentDir.exists() && !parentDir.mkdirs()) {
-                System.err.println("[UltimateHotbars] Failed to create save directory: " + parentDir);
-            }
+            // 2) Ensure parent dir
+            Path savePath = hotbarsFile();
+            Files.createDirectories(savePath.getParent());
 
-            // 3) Write to a .tmp file first
-            Path savePath = SAVE_FILE.toPath();
-            Path tmpPath  = savePath.resolveSibling(SAVE_FILE.getName() + ".tmp");
-            NbtIo.write(root, tmpPath.toFile());
+            // 3) Write to .tmp file
+            Path tmp = savePath.resolveSibling(savePath.getFileName() + ".tmp");
+            NbtIo.write(root, tmp.toFile());
 
-            // 4) Atomically replace the old file
-            Files.move(
-                    tmpPath,
-                    savePath,
+            // 4) Replace atomically
+            Files.move(tmp, savePath,
                     StandardCopyOption.REPLACE_EXISTING,
-                    StandardCopyOption.ATOMIC_MOVE
-            );
+                    StandardCopyOption.ATOMIC_MOVE);
 
-            // 5) Debug tracking & state dump
+            // 5) Track and clear dirty
             lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
             HotbarState.saveState(getPage(), getHotbar(), getSlot());
-
-            // ▶️ Clear the dirty flag now that we’ve successfully saved
             dirty = false;
 
         } catch (Exception e) {
@@ -400,14 +446,20 @@ public class HotbarManager {
     }
 
 
+
     public static void loadHotbars() {
-        if (!SAVE_FILE.exists()) {
+        Path file = hotbarsFile();
+        if (!Files.exists(file)) {
+            // no saved hotbars for this world → default
+            pages.clear();
+            pageNames.clear();
+            addPageInternal();
             return;
         }
         try {
-            CompoundTag root = NbtIo.read(SAVE_FILE);
+            CompoundTag root = NbtIo.read(file.toFile());
             if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) {
-                // malformed or missing → start fresh
+                // malformed → reset
                 pages.clear();
                 pageNames.clear();
                 addPageInternal();
@@ -415,15 +467,12 @@ public class HotbarManager {
             }
 
             CompoundTag map = root.getCompound("HotbarsMap");
-
-            // Figure out how many pages were saved
             int maxIdx = map.getAllKeys().stream()
                     .mapToInt(Integer::parseInt)
                     .max()
                     .orElse(-1);
             int pageCount = (maxIdx / Config.getMaxHotbarsPerPage()) + 1;
 
-            // Initialize empty pages & names
             pages.clear();
             pageNames.clear();
             for (int pi = 0; pi < pageCount; pi++) {
@@ -431,30 +480,20 @@ public class HotbarManager {
                 pageNames.add("Page " + (pi + 1));
             }
 
-            // Populate each saved hotbar
             for (String key : map.getAllKeys()) {
                 int idx = Integer.parseInt(key);
                 int pi  = idx / Config.getMaxHotbarsPerPage();
                 int hi  = idx % Config.getMaxHotbarsPerPage();
                 List<Hotbar> page = pages.get(pi);
-
-                // grow list so index hi is valid
-                while (page.size() <= hi) {
-                    page.add(new Hotbar());
-                }
-
-                // ← NAME FIX HERE: use deserializeNBT, not deserialize
+                while (page.size() <= hi) page.add(new Hotbar());
                 page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
             }
-
-            // ── NEW: ensure no page remains empty ──
-            for (List<Hotbar> page : pages) {
-                if (page.isEmpty()) {
-                    page.add(new Hotbar());
-                }
+            // ensure no empty page
+            for (List<Hotbar> pg : pages) {
+                if (pg.isEmpty()) pg.add(new Hotbar());
             }
 
-            // Load any custom page names
+            // restore names
             CompoundTag namesTag = root.getCompound("PageNames");
             for (String k : namesTag.getAllKeys()) {
                 int pi = Integer.parseInt(k);
@@ -463,17 +502,21 @@ public class HotbarManager {
                 }
             }
 
-            // Restore last-known selection state
+            // load UI state
             HotbarState.loadState();
-            var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
-            if (mcPlayer != null) {
-                mcPlayer.getInventory().selected = currentSlot;
-            }
+            var player = Minecraft.getInstance().player;
+            if (player != null) player.getInventory().selected = currentSlot;
 
         } catch (Exception e) {
+            System.err.println("[UltimateHotbars] Error loading hotbars:");
             e.printStackTrace();
+            // fallback to default
+            pages.clear();
+            pageNames.clear();
+            addPageInternal();
         }
     }
+
 
 
 

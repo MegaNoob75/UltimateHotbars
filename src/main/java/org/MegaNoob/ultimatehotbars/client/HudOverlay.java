@@ -26,8 +26,14 @@ public class HudOverlay {
     public static void onClientTick(ClientTickEvent event) {
         if (event.phase == ClientTickEvent.Phase.END) {
             ticks++;
+            // Sync any real‐hotbar changes (including stack counts) into your virtual hotbars…
+            if (HotbarManager.syncFromGameIfChanged()) {
+                // …and immediately persist them per‐world/per‐server
+                HotbarManager.saveHotbars();
+            }
         }
     }
+
 
     @SubscribeEvent
     public static void renderHotbarLabel(RenderGuiOverlayEvent.Post event) {
