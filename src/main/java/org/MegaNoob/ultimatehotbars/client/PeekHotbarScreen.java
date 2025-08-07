@@ -262,25 +262,24 @@ public class PeekHotbarScreen extends Screen {
         dragging = false;
 
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
-        int rows = Config.peekVisibleRows();
-        int totalBars = bars.size();
-        int visible = Math.min(totalBars, rows);
-        int pageMax = Math.max(0, HotbarManager.getPageNames().size() - rows);
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int sh = mc.getWindow().getGuiScaledHeight();
-        int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int firstY = sh - 60 - (rows - 1) * ROW_H;
+        int rows       = Config.peekVisibleRows();
+        int totalBars  = bars.size();
+        int visible    = Math.min(totalBars, rows);
+        int sw         = mc.getWindow().getGuiScaledWidth();
+        int sh         = mc.getWindow().getGuiScaledHeight();
+        int bgW        = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
+        int firstY     = sh - 60 - (rows - 1) * ROW_H;
         int barsStartY = firstY + (rows - visible) * ROW_H;
-        int baseHbX = (sw - bgW) / 2 + BORDER;
-        int deleteX = baseHbX - BORDER - GAP - NUM_COL_W - GAP - DELETE_BOX_W;
-        int listY = firstY - 3;
-        int listH2 = rows * ROW_H;
+        int baseHbX    = (sw - bgW) / 2 + BORDER;
+        int deleteX    = baseHbX - BORDER - GAP - NUM_COL_W - GAP - DELETE_BOX_W;
+        int listY      = firstY - 3;
+        int listH2     = rows * ROW_H;
 
         // Click-to-select (no drag)
         if (!wasDragging) {
             for (int i = 0; i < visible; i++) {
-                int row = peekScrollRow + i;
-                int y = barsStartY + i * ROW_H;
+                int row  = peekScrollRow + i;
+                int y    = barsStartY + i * ROW_H;
                 int relX = (int) (mx - baseHbX);
                 if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW) {
                     int slot = relX / CELL;
@@ -289,7 +288,7 @@ public class PeekHotbarScreen extends Screen {
                     HotbarManager.syncToGame();
                     mc.player.getInventory().selected = slot;
                     mc.player.connection.send(new ServerboundSetCarriedItemPacket(slot));
-                    if (Config.enableSounds() && mc.player != null) {
+                    if (Config.enableSounds()) {
                         mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
                     }
                     return true;
@@ -299,48 +298,60 @@ public class PeekHotbarScreen extends Screen {
         }
 
         boolean handled = false;
-        // Dropped back on original slot
-        int relX0 = (int) (mx - baseHbX);
-        int slot0 = relX0 / CELL;
-        int y0 = barsStartY + (sourceRow - peekScrollRow) * ROW_H;
-        if (slot0 == sourceSlot && relX0 >= 0 && relX0 < CELL && my >= y0 - 3 && my < y0 - 3 + ROW_H) {
+        int relX  = (int) (mx - baseHbX);
+        int slot  = relX / CELL;
+        int y0     = barsStartY + (sourceRow - peekScrollRow) * ROW_H;
+
+        // 1) Dropped back on original slot?
+        if (slot == sourceSlot
+                && relX >= sourceSlot * CELL && relX < (sourceSlot + 1) * CELL
+                && my >= y0 - 3 && my < y0 - 3 + ROW_H) {
             bars.get(sourceRow).setSlot(sourceSlot, draggedStack);
             handled = true;
         }
-        // Dropped in delete box
-        if (!handled && mx >= deleteX && mx < deleteX + DELETE_BOX_W && my >= listY && my < listY + listH2) {
+
+        // 2) Dropped in delete box?
+        if (!handled
+                && mx >= deleteX && mx < deleteX + DELETE_BOX_W
+                && my >= listY   && my < listY   + listH2) {
+            // clear the slot
+            bars.get(sourceRow).setSlot(sourceSlot, ItemStack.EMPTY);
             handled = true;
         }
-        // Dropped onto another slot
+
+        // 3) Dropped onto another slot?
         if (!handled) {
             for (int i = 0; i < visible; i++) {
                 int row = peekScrollRow + i;
-                int y = barsStartY + i * ROW_H;
-                int relX = (int) (mx - baseHbX);
-                if (my >= y - 3 && my < y - 3 + ROW_H && relX >= 0 && relX < bgW) {
-                    int slot = relX / CELL;
-                    ItemStack existing = bars.get(row).getSlot(slot);
-                    bars.get(row).setSlot(slot, draggedStack);
+                int yy  = barsStartY + i * ROW_H;
+                if (my >= yy - 3 && my < yy - 3 + ROW_H
+                        && relX >= 0 && relX < bgW) {
+                    int targetSlot = relX / CELL;
+                    ItemStack existing = bars.get(row).getSlot(targetSlot);
+                    bars.get(row).setSlot(targetSlot, draggedStack);
                     bars.get(sourceRow).setSlot(sourceSlot, existing);
                     handled = true;
                     break;
                 }
             }
         }
-        // Fallback: restore to original
+
+        // 4) Fallback restore (shouldn’t happen now)
         if (!handled) {
             bars.get(sourceRow).setSlot(sourceSlot, draggedStack);
         }
 
+        // persist and sync
         HotbarManager.markDirty();
         HotbarManager.saveHotbars();
         HotbarManager.syncToGame();
-        if (Config.enableSounds() && mc.player != null) {
+        if (Config.enableSounds()) {
             mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
         }
         draggedStack = ItemStack.EMPTY;
         return true;
     }
+
 
 
     @Override
