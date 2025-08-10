@@ -16,9 +16,9 @@ import java.util.Optional;
 
 /**
  * JEI bridge + plugin:
- * - Registers as a JEI plugin to capture the runtime (exactly like your working version).
- * - hasTextFocus() matches the old behavior (overlay.hasKeyboardFocus()), with a small vanilla fallback.
- * - getItemUnderMouse(...) stays version-agnostic via reflection (so no generics headaches).
+ * - Registers as a JEI plugin to capture the runtime (matches your last working version).
+ * - hasTextFocus() uses overlay.hasKeyboardFocus() + a small EditBox fallback.
+ * - getItemUnderMouse(...) remains reflection-based (tolerates API differences).
  */
 @JeiPlugin
 public final class JeiBridge implements IModPlugin {
@@ -34,22 +34,18 @@ public final class JeiBridge implements IModPlugin {
         RUNTIME = runtime;
     }
 
-    /** Returns true if JEI’s overlay (e.g., the search box) has keyboard focus. */
+    /** True if JEI’s overlay (e.g., search box) or the recipes GUI currently has keyboard focus. */
     public static boolean hasTextFocus() {
         IJeiRuntime rt = RUNTIME;
         if (rt != null) {
             IIngredientListOverlay overlay = rt.getIngredientListOverlay();
-            if (overlay != null && overlay.hasKeyboardFocus()) {
-                return true; // <- this is the exact check you had before
-            }
-            // Some JEI versions may also route focus via the recipes GUI; harmless extra check:
+            if (overlay != null && overlay.hasKeyboardFocus()) return true; // <- your original, working check
+
             IRecipesGui recipes = rt.getRecipesGui();
-            if (recipes != null && callBool(recipes, "hasKeyboardFocus")) {
-                return true;
-            }
+            if (recipes != null && callBool(recipes, "hasKeyboardFocus")) return true;
         }
 
-        // Vanilla/mod fallback: focused EditBox that can consume input
+        // Vanilla/mod fallback: any focused EditBox that can consume input
         try {
             Minecraft mc = Minecraft.getInstance();
             if (mc != null && mc.screen != null) {
@@ -67,22 +63,19 @@ public final class JeiBridge implements IModPlugin {
         return false;
     }
 
-    /**
-     * Returns the ItemStack currently under the mouse in JEI (item list or recipe GUI),
-     * or ItemStack.EMPTY if none. Uses reflection so it tolerates API differences.
-     */
+    /** Item under mouse from JEI (overlay or recipes). */
     public static ItemStack getItemUnderMouse(double x, double y) {
         IJeiRuntime rt = RUNTIME;
         if (rt == null) return ItemStack.EMPTY;
 
-        // 1) Ingredient List Overlay (left/right JEI panes)
+        // 1) Ingredient List Overlay
         try {
             Object overlay = rt.getIngredientListOverlay();
             ItemStack fromOverlay = extractFromOverlayOrRecipes(overlay);
             if (!fromOverlay.isEmpty()) return fromOverlay;
         } catch (Throwable ignored) {}
 
-        // 2) Recipes GUI (open recipe pages)
+        // 2) Recipes GUI
         try {
             Object recipes = rt.getRecipesGui();
             ItemStack fromRecipes = extractFromOverlayOrRecipes(recipes);
@@ -92,65 +85,57 @@ public final class JeiBridge implements IModPlugin {
         return ItemStack.EMPTY;
     }
 
-    // ---------------- Internal reflection helpers ----------------
+    // ---------------- reflection helpers ----------------
 
-    /** Try all known signatures on overlay/recipes to get an ItemStack. */
     private static ItemStack extractFromOverlayOrRecipes(Object obj) {
         if (obj == null) return ItemStack.EMPTY;
 
-        // Newer JEI: Optional<ITypedIngredient<?>> getIngredientUnderMouse()
+        // Optional<ITypedIngredient<?>> getIngredientUnderMouse()
         try {
             Method m0 = obj.getClass().getMethod("getIngredientUnderMouse");
             Object r0 = m0.invoke(obj);
-            ItemStack st = extractItemStack(r0);
-            if (!st.isEmpty()) return st;
+            ItemStack st0 = extractItemStack(r0);
+            if (!st0.isEmpty()) return st0;
         } catch (Throwable ignored) {}
 
-        // Typed: getIngredientUnderMouse(IIngredientType) -> Optional<T> or T
+        // getIngredientUnderMouse(IIngredientType) -> Optional<T> or T
         try {
             Class<?> vanillaTypes = Class.forName("mezz.jei.api.constants.VanillaTypes");
             Object ITEM_STACK = vanillaTypes.getField("ITEM_STACK").get(null);
             Class<?> iType = Class.forName("mezz.jei.api.ingredients.IIngredientType");
             Method m1 = obj.getClass().getMethod("getIngredientUnderMouse", iType);
             Object r1 = m1.invoke(obj, ITEM_STACK);
-            ItemStack st = extractItemStack(r1);
-            if (!st.isEmpty()) return st;
+            ItemStack st1 = extractItemStack(r1);
+            if (!st1.isEmpty()) return st1;
         } catch (Throwable ignored) {}
 
         return ItemStack.EMPTY;
     }
 
-    /** Extract an ItemStack from various possible JEI return types. */
     private static ItemStack extractItemStack(Object any) {
         if (any == null) return ItemStack.EMPTY;
 
-        // Direct ItemStack
         if (any instanceof ItemStack st) return st.copy();
 
-        // Optional<?>
         if (any instanceof Optional<?> opt) {
             return opt.map(JeiBridge::extractItemStack).orElse(ItemStack.EMPTY);
         }
 
-        // ITypedIngredient<?> (has getIngredient())
         try {
             Method getIngredient = any.getClass().getMethod("getIngredient");
             Object ing = getIngredient.invoke(any);
             if (ing instanceof ItemStack st) return st.copy();
         } catch (Throwable ignored) {}
 
-        // Iterable fall-back
         if (any instanceof Iterable<?> it) {
             for (Object o : it) {
                 ItemStack st = extractItemStack(o);
                 if (!st.isEmpty()) return st;
             }
         }
-
         return ItemStack.EMPTY;
     }
 
-    /** Call a no-arg boolean method by name; return false on any failure. */
     private static boolean callBool(Object target, String methodName) {
         try {
             Method m = target.getClass().getMethod(methodName);
