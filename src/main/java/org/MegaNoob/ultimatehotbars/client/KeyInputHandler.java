@@ -2,7 +2,6 @@ package org.MegaNoob.ultimatehotbars.client;
 
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
@@ -16,6 +15,8 @@ import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+
 
 
 import static org.lwjgl.glfw.GLFW.*;
@@ -43,24 +44,77 @@ public class KeyInputHandler {
     private static final long NAV_THROTTLE_MS = 50;
     private static long lastNavTime = 0;
     private static volatile boolean saveInProgress = false;
-    public static boolean canNavigate() {
+    // Throttle helper: return true when we should SKIP handling right now.
+    private static boolean shouldThrottleNav() {
         long now = System.currentTimeMillis();
-        if (now - lastNavTime < NAV_THROTTLE_MS) return false;
-        lastNavTime = now;
-        return true;
+        boolean throttle = (now - lastNavTime) < NAV_THROTTLE_MS;
+        if (!throttle) {
+            // Only advance the window when we're allowed to navigate
+            lastNavTime = now;
+        }
+        return throttle;
+    }
+    /** Public API (kept for other classes): return true when we MAY handle navigation. */
+    public static boolean canNavigate() {
+        return !shouldThrottleNav();
     }
 
-    // ---- UNIVERSAL TEXT FIELD FOCUS CHECK ----
+    // ---- UNIVERSAL TEXT INPUT FOCUS CHECK (JEI-stable) ----
     public static boolean isAnyTextFieldFocused() {
-        Screen curr = Minecraft.getInstance().screen;
-        // your custom GUI’s text fields
-        if (curr instanceof HotbarGuiScreen gui && gui.isTextFieldFocused()) return true;
-        // Minecraft chat
-        if (curr instanceof ChatScreen) return true;
-        // any other EditBox-based screens?
-        // (add more clauses here if you open other modded text screens)
+        // 1) JEI overlay / recipes UI (search box etc.)
+        try {
+            if (org.MegaNoob.ultimatehotbars.client.JeiBridge.hasTextFocus()) {
+                return true;
+            }
+        } catch (Throwable ignored) {
+            // JEI not present or plugin not loaded; ignore.
+        }
+
+        // 2) Normal screens
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        net.minecraft.client.gui.screens.Screen screen = mc.screen;
+        if (screen == null) return false;
+
+        // Chat always captures typing
+        if (screen instanceof net.minecraft.client.gui.screens.ChatScreen) return true;
+
+        // 3) Focused widget is an EditBox?
+        net.minecraft.client.gui.components.events.GuiEventListener focused = screen.getFocused();
+        if (focused instanceof net.minecraft.client.gui.components.EditBox eb && eb.isFocused()) return true;
+
+        // 4) Recursively scan for a focused EditBox in this Screen (Screen implements ContainerEventHandler)
+        return hasFocusedTextInput((net.minecraft.client.gui.components.events.ContainerEventHandler) screen);
+    }
+
+    /** Recursively looks for a focused EditBox inside this container. */
+    private static boolean hasFocusedTextInput(net.minecraft.client.gui.components.events.ContainerEventHandler root) {
+        for (net.minecraft.client.gui.components.events.GuiEventListener child : root.children()) {
+            if (child instanceof net.minecraft.client.gui.components.EditBox eb && eb.isFocused()) return true;
+            if (child instanceof net.minecraft.client.gui.components.events.ContainerEventHandler nested &&
+                    hasFocusedTextInput(nested)) return true;
+        }
         return false;
     }
+
+
+    // Name-agnostic reflection: looks for a boolean field on KeyboardHandler that mentions "repeat".
+    private static Boolean getSendRepeatsToGui() {
+        try {
+            Object kh = net.minecraft.client.Minecraft.getInstance().keyboardHandler; // non-null in client
+            for (java.lang.reflect.Field f : kh.getClass().getDeclaredFields()) {
+                if (f.getType() != boolean.class) continue;
+                String n = f.getName().toLowerCase(java.util.Locale.ROOT);
+                if (n.contains("repeat")) {
+                    f.setAccessible(true);
+                    return (Boolean) f.get(kh);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+
+
 
     public static void handleKeyPressed(int keyCode, int scanCode) {
         if (isAnyTextFieldFocused()) return;
@@ -129,8 +183,16 @@ public class KeyInputHandler {
 
 
     public static void tick() {
-        // 1) never fire while typing anywhere
-        if (isAnyTextFieldFocused()) return;
+        // 1) never fire while typing anywhere — and reset repeat state so keys aren't "stuck"
+        if (isAnyTextFieldFocused()) {
+            for (int i = 0; i < keyHeld.length; i++) {
+                keyHeld[i]           = false;
+                skipUntilReleased[i] = false; // allow a fresh press right after leaving the field
+                keyPressStart[i]     = 0;
+                lastRepeat[i]        = 0;
+            }
+            return;
+        }
 
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
@@ -157,10 +219,10 @@ public class KeyInputHandler {
         if (modifierNow != lastModifierDown) {
             lastModifierDown = modifierNow;
             for (int i = 0; i < keyHeld.length; i++) {
-                keyHeld[i]            = false;
-                skipUntilReleased[i]  = true;
-                keyPressStart[i]      = 0;
-                lastRepeat[i]         = 0;
+                keyHeld[i]           = false;
+                skipUntilReleased[i] = true;  // require release after modifier change
+                keyPressStart[i]     = 0;
+                lastRepeat[i]        = 0;
             }
         }
 
@@ -187,8 +249,8 @@ public class KeyInputHandler {
                     triggerKey(i);
                 }
             } else {
-                keyHeld[i]          = false;
-                skipUntilReleased[i]= false;
+                keyHeld[i]           = false;
+                skipUntilReleased[i] = false;
             }
         }
 
@@ -197,8 +259,6 @@ public class KeyInputHandler {
         if (clearKey) {
             if (!clearHeld) {
                 clearHeld = true;
-                // Delegate to your manager’s clearCurrentHotbar, which now does:
-                //   markDirty(); saveHotbars(); syncToGame();
                 HotbarManager.clearCurrentHotbar();
                 if (Config.enableSounds()) {
                     mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f);
@@ -214,7 +274,6 @@ public class KeyInputHandler {
             if (lastScreen instanceof InventoryScreen
                     || lastScreen instanceof HotbarGuiScreen
                     || screen instanceof HotbarGuiScreen) {
-                // Only snapshot & save if the real hotbar actually changed
                 if (HotbarManager.syncFromGameIfChanged()) {
                     HotbarManager.saveHotbars();
                 }
@@ -222,6 +281,7 @@ public class KeyInputHandler {
             lastScreen = screen;
         }
     }
+
 
 
 
@@ -276,12 +336,13 @@ public class KeyInputHandler {
         }
 
         // 4) Allow “open GUI” in any container (but not if it’s already your GUI)
-        if (!(screen instanceof HotbarGuiScreen)
-                && screen instanceof AbstractContainerScreen<?>
-                && KeyBindings.OPEN_GUI.isActiveAndMatches(key)) {
+        if (screen instanceof AbstractContainerScreen<?>
+                && KeyBindings.OPEN_GUI.isActiveAndMatches(key)
+                && !isAnyTextFieldFocused()) {
             mc.setScreen(new HotbarGuiScreen());
             event.setCanceled(true);
         }
+
     }
 
 
@@ -304,7 +365,7 @@ public class KeyInputHandler {
 
 
     private static void triggerKey(int index) {
-        if (!canNavigate()) return;    // ← throttle!
+        if (shouldThrottleNav()) return;   // ← throttle!
         Minecraft mc = Minecraft.getInstance();
         boolean playedSound = false;
         boolean pageChanged = false;
