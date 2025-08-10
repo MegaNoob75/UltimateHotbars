@@ -63,6 +63,13 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+
+        // Allow ESC to close this GUI even if the textbox has focus
+        if (keyCode == GLFW_KEY_ESCAPE) {
+            this.onClose(); // default onClose() = Minecraft.setScreen(null)
+            return true;
+        }
+
         // ——— If the page-name textbox is focused, consume ALL keys ———
         if (pageInput != null && pageInput.isFocused()) {
             // Enter (main or keypad) unfocuses the textbox:
