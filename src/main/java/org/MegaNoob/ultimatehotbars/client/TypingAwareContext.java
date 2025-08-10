@@ -9,10 +9,6 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraftforge.client.settings.IKeyConflictContext;
 import net.minecraftforge.client.settings.KeyConflictContext;
 
-/**
- * Disables your keybinds while ANY text input is focused (chat, anvil rename,
- * JEI/REI search, other mods' text widgets). No JEI imports required.
- */
 public enum TypingAwareContext implements IKeyConflictContext {
     INSTANCE;
 
@@ -20,31 +16,38 @@ public enum TypingAwareContext implements IKeyConflictContext {
     public boolean isActive() {
         Minecraft mc = Minecraft.getInstance();
         Screen s = mc.screen;
-        if (s == null) return true;                // no GUI → allow keys
-        if (s instanceof ChatScreen) return false; // chat is typing
+        if (s == null) return true;                 // in-world → allow keys
+        if (s instanceof ChatScreen) return false;  // chat is always typing
 
-        // Focused widget directly an EditBox?
+        // Focused widget directly an EditBox that can take input?
         GuiEventListener focused = s.getFocused();
-        if (focused instanceof EditBox eb && eb.isFocused()) return false;
+        if (focused instanceof EditBox eb && eb.canConsumeInput()) {
+            return false; // typing → key inactive
+        }
 
-        // Recursively scan the current screen's children for a focused EditBox
-        // Screen implements ContainerEventHandler in 1.20.1, so just cast.
-        if (hasFocusedTextInput((ContainerEventHandler) s)) return false;
+        // Screen implements ContainerEventHandler in 1.20.1 → scan children
+        if (hasFocusedTextInput((ContainerEventHandler) s)) {
+            return false; // typing somewhere in the tree → key inactive
+        }
 
-        return true; // otherwise, keys active (inventories/containers still work)
+        return true; // otherwise, keys are active (e.g., inventories/containers without typing)
     }
-
 
     @Override
     public boolean conflicts(IKeyConflictContext other) {
-        // behave like UNIVERSAL so we don't lose conflicts
+        // behave like UNIVERSAL for conflicts
         return other == this || other == KeyConflictContext.UNIVERSAL;
     }
 
+    /** TRUE iff any EditBox in this container can currently consume input. */
     private static boolean hasFocusedTextInput(ContainerEventHandler root) {
         for (GuiEventListener child : root.children()) {
-            if (child instanceof EditBox eb && eb.isFocused()) return true;
-            if (child instanceof ContainerEventHandler nested && hasFocusedTextInput(nested)) return true;
+            if (child instanceof EditBox eb && eb.canConsumeInput()) {
+                return true;
+            }
+            if (child instanceof ContainerEventHandler nested && hasFocusedTextInput(nested)) {
+                return true;
+            }
         }
         return false;
     }

@@ -59,18 +59,16 @@ public class KeyInputHandler {
         return !shouldThrottleNav();
     }
 
-    // ---- UNIVERSAL TEXT INPUT FOCUS CHECK (JEI-stable) ----
+    // ---- UNIVERSAL TEXT INPUT FOCUS CHECK (JEI + vanilla, using canConsumeInput) ----
     public static boolean isAnyTextFieldFocused() {
-        // 1) JEI overlay / recipes UI (search box etc.)
+        // A) JEI overlay search (keep if you added the tiny plugin; otherwise this try/catch is harmless)
         try {
             if (org.MegaNoob.ultimatehotbars.client.JeiBridge.hasTextFocus()) {
                 return true;
             }
-        } catch (Throwable ignored) {
-            // JEI not present or plugin not loaded; ignore.
-        }
+        } catch (Throwable ignored) {}
 
-        // 2) Normal screens
+        // B) Normal screens
         net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         net.minecraft.client.gui.screens.Screen screen = mc.screen;
         if (screen == null) return false;
@@ -78,107 +76,29 @@ public class KeyInputHandler {
         // Chat always captures typing
         if (screen instanceof net.minecraft.client.gui.screens.ChatScreen) return true;
 
-        // 3) Focused widget is an EditBox?
+        // Focused widget is an EditBox and can actually take input?
         net.minecraft.client.gui.components.events.GuiEventListener focused = screen.getFocused();
-        if (focused instanceof net.minecraft.client.gui.components.EditBox eb && eb.isFocused()) return true;
+        if (focused instanceof net.minecraft.client.gui.components.EditBox eb && eb.canConsumeInput()) {
+            return true;
+        }
 
-        // 4) Recursively scan for a focused EditBox in this Screen (Screen implements ContainerEventHandler)
+        // Recursively scan children (Screen implements ContainerEventHandler in 1.20.1)
         return hasFocusedTextInput((net.minecraft.client.gui.components.events.ContainerEventHandler) screen);
     }
 
-    /** Recursively looks for a focused EditBox inside this container. */
-    private static boolean hasFocusedTextInput(net.minecraft.client.gui.components.events.ContainerEventHandler root) {
+    /** Recursively looks for an EditBox that can currently consume input. */
+    private static boolean hasFocusedTextInput(
+            net.minecraft.client.gui.components.events.ContainerEventHandler root) {
         for (net.minecraft.client.gui.components.events.GuiEventListener child : root.children()) {
-            if (child instanceof net.minecraft.client.gui.components.EditBox eb && eb.isFocused()) return true;
-            if (child instanceof net.minecraft.client.gui.components.events.ContainerEventHandler nested &&
-                    hasFocusedTextInput(nested)) return true;
+            if (child instanceof net.minecraft.client.gui.components.EditBox eb && eb.canConsumeInput()) {
+                return true;
+            }
+            if (child instanceof net.minecraft.client.gui.components.events.ContainerEventHandler nested
+                    && hasFocusedTextInput(nested)) {
+                return true;
+            }
         }
         return false;
-    }
-
-
-    // Name-agnostic reflection: looks for a boolean field on KeyboardHandler that mentions "repeat".
-    private static Boolean getSendRepeatsToGui() {
-        try {
-            Object kh = net.minecraft.client.Minecraft.getInstance().keyboardHandler; // non-null in client
-            for (java.lang.reflect.Field f : kh.getClass().getDeclaredFields()) {
-                if (f.getType() != boolean.class) continue;
-                String n = f.getName().toLowerCase(java.util.Locale.ROOT);
-                if (n.contains("repeat")) {
-                    f.setAccessible(true);
-                    return (Boolean) f.get(kh);
-                }
-            }
-        } catch (Throwable ignored) {}
-        return null;
-    }
-
-
-
-
-    public static void handleKeyPressed(int keyCode, int scanCode) {
-        if (isAnyTextFieldFocused()) return;
-
-        Minecraft mc = Minecraft.getInstance();
-        Screen current = mc.screen;
-
-        InputConstants.Key inputKey = InputConstants.getKey(keyCode, scanCode);
-
-        if (mc.player == null) return;
-
-        if (current instanceof HotbarGuiScreen gui) {
-            if (gui.isTextFieldFocused()) return;
-
-            double rawX = mc.mouseHandler.xpos();
-            double rawY = mc.mouseHandler.ypos();
-            int mx = (int) (rawX * gui.width / mc.getWindow().getScreenWidth());
-            int my = (int) (rawY * gui.height / mc.getWindow().getScreenHeight());
-
-            if (gui.isMouseOverPageList(mx, my) && (keyCode == GLFW_KEY_UP || keyCode == GLFW_KEY_DOWN)) {
-                int page = HotbarManager.getPage();
-                int pageCount = HotbarManager.getPageCount();
-                int dir = (keyCode == GLFW_KEY_DOWN) ? 1 : -1;
-                int newPage = ((page + dir) % pageCount + pageCount) % pageCount;
-
-                if (newPage != page) {
-                    // Only snapshot & save if the real hotbar actually changed
-                    if (HotbarManager.syncFromGameIfChanged()) {
-                        HotbarManager.saveHotbars();
-                    }
-
-                    // Optional: play sound when changing pages
-                    if (Config.enableSounds() && Minecraft.getInstance().player != null) {
-                        Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-                    }
-                }
-                return;
-            }
-
-            // Switch to vanilla inventory with inventory key
-            if (mc.options.keyInventory.isActiveAndMatches(inputKey)) {
-                mc.setScreen(new InventoryScreen(mc.player));
-                guiJustClosed = true;
-                return;
-            }
-            // Close GUI with its own key
-            if (KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
-                mc.setScreen(null);
-                guiJustClosed = true;
-                return;
-            }
-        }
-
-        // Open GUI from inventory or other screens, but not if just closed
-        if (!(current instanceof HotbarGuiScreen) &&
-                KeyBindings.OPEN_GUI.isActiveAndMatches(inputKey)) {
-            if (!guiJustClosed && !isAnyTextFieldFocused()) {
-                mc.setScreen(new HotbarGuiScreen());
-            }
-        }
-    }
-
-    public static void handleRawKeyInput(int keyCode, int scanCode) {
-        handleKeyPressed(keyCode, scanCode);
     }
 
 
