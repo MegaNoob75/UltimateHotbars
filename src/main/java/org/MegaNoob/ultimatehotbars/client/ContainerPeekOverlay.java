@@ -24,23 +24,11 @@ import java.util.List;
 
 /**
  * Always-on Peek overlay on the LEFT side of any container/creative screen.
- * - Auto-scales to fit the gap between screen-left and the container GUI left edge.
- * - Drag/drop parity with the Peek window, plus accepts drops from containers/creative and JEI.
- * - Drop targets:
- *     * Slot grid: put/swap exact slot.
- *     * Number column: put/swap into that hotbar at same slot index (external uses currently-selected slot).
- *     * Page list: switch to that page and put/swap into currently-selected row+slot on that page.
- * - Leaving the overlay and releasing reverts overlay-origin drags (unless released over DELETE).
- * - Clicking a slot (even with an item in it) activates that slot; Shift+Click forces activation even if carrying.
  */
 @Mod.EventBusSubscriber(modid = ultimatehotbars.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
 public final class ContainerPeekOverlay {
 
     private ContainerPeekOverlay() {}
-
-    // throttle wheel-based hotbar switching in the overlay
-    private static long lastBarsWheelMs = 0L;
-    private static int  pendingWheelHotbar = -1; // -1 = none
 
     // === Visual constants (match Peek look) ===
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
@@ -69,9 +57,8 @@ public final class ContainerPeekOverlay {
     private static boolean dragging = false;
     private static boolean draggedBeyondThreshold = false;
     private static int pressLocalX = 0, pressLocalY = 0;
-    private static int lastLocalX = 0, lastLocalY = 0;
 
-    private enum DragSource { NONE, OVERLAY, EXTERNAL }
+    private enum DragSource { NONE, OVERLAY }
     private static DragSource dragSource = DragSource.NONE;
 
     // Track EXACT source hotbar (by reference) and slot (works across page/scroll)
@@ -80,6 +67,10 @@ public final class ContainerPeekOverlay {
     private static ItemStack dragStack     = ItemStack.EMPTY;
 
     private static final int DRAG_THRESHOLD = 3;
+
+    // External press handling: if cursor (or JEI hover) has an item when clicking overlay, we treat it as external drop.
+    private static boolean   externalPressPending = false;
+    private static ItemStack externalPressStack   = ItemStack.EMPTY;
 
     // ---------- Small helpers ----------
     private static boolean pointInRectLocal(int lx, int ly, int rx, int ry, int rw, int rh) {
@@ -92,14 +83,8 @@ public final class ContainerPeekOverlay {
         try { HotbarManager.saveHotbars(); } catch (Throwable ignored) {}
         try { HotbarManager.syncToGame();  } catch (Throwable ignored) {}
     }
-    /** Clear the game's carried stack (Creative/inventory cursor). */
-    private static void clearCarriedIfAny() {
-        var mc = Minecraft.getInstance();
-        if (mc != null && mc.player != null && mc.player.containerMenu != null) {
-            mc.player.containerMenu.setCarried(ItemStack.EMPTY);
-        }
-    }
-    /** Force-select a vanilla hotbar slot (0..8) on client + server so selection cannot revert. */
+    /** Force-select a vanilla hotbar slot (0..8) on client + server. */
+    @SuppressWarnings("SameParameterValue")
     private static void forceSelectSlotClientAndServer(int slot0to8) {
         var mc = Minecraft.getInstance();
         if (mc == null || mc.player == null) return;
@@ -111,17 +96,17 @@ public final class ContainerPeekOverlay {
         } catch (Throwable ignored) {}
     }
     /**
-     * External stack from carried (inventory/creative) or optional JEI bridge.
-     * If JeiBridge#getItemUnderMouse(x,y) exists, we’ll pick up JEI drags too.
+     * External stack: carried (inventory/creative) or optional JEI bridge (hover).
      */
     private static ItemStack getExternalDragStack(double screenMouseX, double screenMouseY) {
+        // carried from container
         var mc = Minecraft.getInstance();
         if (mc != null && mc.player != null && mc.player.containerMenu != null) {
             var carried = mc.player.containerMenu.getCarried();
             if (carried != null && !carried.isEmpty()) return carried.copy();
         }
+        // optional JEI hover (via an optional bridge class to avoid hard dep)
         try {
-            // Optional: public static ItemStack JeiBridge.getItemUnderMouse(double x, double y)
             Class<?> bridge = Class.forName("org.MegaNoob.ultimatehotbars.client.JeiBridge");
             var m = bridge.getMethod("getItemUnderMouse", double.class, double.class);
             Object o = m.invoke(null, screenMouseX, screenMouseY);
@@ -129,8 +114,26 @@ public final class ContainerPeekOverlay {
         } catch (Throwable ignored) {}
         return ItemStack.EMPTY;
     }
-
-
+    private static ItemStack getCarried(AbstractContainerScreen<?> acs) {
+        try {
+            ItemStack s = acs.getMenu().getCarried();
+            return s == null ? ItemStack.EMPTY : s;
+        } catch (Throwable ignored) {}
+        var mc = Minecraft.getInstance();
+        if (mc != null && mc.player != null && mc.player.containerMenu != null) {
+            ItemStack s = mc.player.containerMenu.getCarried();
+            return s == null ? ItemStack.EMPTY : s;
+        }
+        return ItemStack.EMPTY;
+    }
+    private static void setCarried(AbstractContainerScreen<?> acs, ItemStack stack) {
+        try { acs.getMenu().setCarried(stack == null ? ItemStack.EMPTY : stack); return; }
+        catch (Throwable ignored) {}
+        var mc = Minecraft.getInstance();
+        if (mc != null && mc.player != null && mc.player.containerMenu != null) {
+            mc.player.containerMenu.setCarried(stack == null ? ItemStack.EMPTY : stack);
+        }
+    }
 
     // ---------- RENDER ----------
     @SubscribeEvent
@@ -226,21 +229,19 @@ public final class ContainerPeekOverlay {
             g.drawString(font, "▼", numX + (NUM_COL_W - font.width("▼")) / 2, barsStartY + visible * ROW_H + 2, 0xFFFFFF);
         }
 
-        // --- SHOW PENDING SELECTION IMMEDIATELY (this is the key change) ---
+        // selection (pending or actual)
         int selectedRowForDisplay = Mth.clamp(
                 (WheelSwitchCoordinator.getPendingTarget() >= 0
                         ? WheelSwitchCoordinator.getPendingTarget()
                         : HotbarManager.getHotbar()),
                 0, totalBars - 1);
 
-        // keep the displayed selection in view (and do it BEFORE drawing rows)
+        // keep selected in view
         if (selectedRowForDisplay < peekScrollRow) {
             peekScrollRow = selectedRowForDisplay;
         } else if (selectedRowForDisplay >= peekScrollRow + visible) {
             peekScrollRow = Math.max(0, selectedRowForDisplay - visible + 1);
         }
-
-        int selectedSlot = HotbarManager.getSlot();
 
         // Mouse in local overlay space
         int mxLocal = (int) ((event.getMouseX() - originX) / scale);
@@ -260,7 +261,7 @@ public final class ContainerPeekOverlay {
             // row strip
             g.blit(HOTBAR_TEX, baseHbX - BORDER, y - 3, 0, 0, bgW, ROW_H);
 
-            // full-row highlight based on displayed selection (includes pending)
+            // full-row highlight
             if (row == selectedRowForDisplay) {
                 float[] c = Config.highlightColor();
                 int color = ((int)(c[3]*255)<<24) | ((int)(c[0]*255)<<16) | ((int)(c[1]*255)<<8) | (int)(c[2]*255);
@@ -271,7 +272,6 @@ public final class ContainerPeekOverlay {
             for (int sIdx = 0; sIdx < Hotbar.SLOT_COUNT; sIdx++) {
                 int x = baseHbX + sIdx * CELL + (CELL - 16) / 2;
                 boolean hide = dragging && dragSource == DragSource.OVERLAY
-                        && (row >= 0 && row < bars.size())
                         && bars.get(row) == dragSrcHotbar && sIdx == dragSrcSlot;
                 if (!hide) {
                     ItemStack stack = bars.get(row).getSlot(sIdx);
@@ -298,15 +298,15 @@ public final class ContainerPeekOverlay {
                     int rc = (int)(arr[0] * 255f), gc = (int)(arr[1] * 255f), bc = (int)(arr[2] * 255f);
                     int col = (a<<24) | (rc<<16) | (gc<<8) | bc;
                     int tpx = 1;
-                    g.fill(hx,              hy,               hx + CELL,      hy + tpx,       col);
-                    g.fill(hx,              hy + ROW_H - tpx, hx + CELL,      hy + ROW_H,     col);
-                    g.fill(hx,              hy,               hx + tpx,       hy + ROW_H,     col);
-                    g.fill(hx + CELL - tpx, hy,               hx + CELL,      hy + ROW_H,     col);
+                    g.fill(hx,              hy,               hx + CELL,      hy + tpx,       col); // top
+                    g.fill(hx,              hy + ROW_H - tpx, hx + CELL,      hy + ROW_H,     col); // bottom
+                    g.fill(hx,              hy,               hx + tpx,       hy + ROW_H,     col); // left
+                    g.fill(hx + CELL - tpx, hy,               hx + CELL,      hy + ROW_H,     col); // right
                 }
             }
         }
 
-        // Page list (5 rows tall)
+        // Page list
         int trackX = listX + LIST_W - 6;
         g.fill(trackX, firstY - 3, trackX + 4, firstY - 3 + listH, 0x44000000);
 
@@ -334,7 +334,7 @@ public final class ContainerPeekOverlay {
 
         g.pose().popPose();
 
-        // drag ghost
+        // drag ghost (overlay drags)
         if (dragging && dragSource == DragSource.OVERLAY && !dragStack.isEmpty()) {
             int sx = (int) event.getMouseX() - 8;
             int sy = (int) event.getMouseY() - 8;
@@ -343,94 +343,86 @@ public final class ContainerPeekOverlay {
         }
     }
 
-
-
-
-
-
     // ---------- PRESS ----------
     @SubscribeEvent
     public static void onMousePressedPre(ScreenEvent.MouseButtonPressed.Pre event) {
         Screen s = event.getScreen();
         if (!(s instanceof AbstractContainerScreen<?> acs)) return;
+        if (event.getButton() != 0) return; // LMB only
 
-        // Only if cursor is left of the container GUI (our overlay)
-        if (event.getMouseX() >= acs.getGuiLeft()) return;
+        // If press happens over our overlay area, decide: overlay-drag OR external-drop
+        if (event.getMouseX() < acs.getGuiLeft()) {
+            int mxLocal = (int) ((event.getMouseX() - lastOriginX) / lastScale);
+            int myLocal = (int) ((event.getMouseY() - lastOriginY) / lastScale);
+            if (mxLocal < 0 || myLocal < 0 || mxLocal >= lastNaturalW || myLocal >= lastNaturalH) return;
 
-        int mxLocal = (int) ((event.getMouseX() - lastOriginX) / lastScale);
-        int myLocal = (int) ((event.getMouseY() - lastOriginY) / lastScale);
-        if (mxLocal < 0 || myLocal < 0 || mxLocal >= lastNaturalW || myLocal >= lastNaturalH) return;
+            int rowsRequested = Math.max(1, Config.peekVisibleRows());
+            List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
+            if (bars.isEmpty()) return;
+            int rows = Math.min(rowsRequested, bars.size());
+            int rowsUI = 5;
 
-        if (event.getButton() != 0) { // LMB only
-            event.setCanceled(true);
-            return;
-        }
+            int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
+            int deleteX = 0;
+            int numX    = deleteX + DELETE_BOX_W + GAP;
+            int baseHbX = numX + NUM_COL_W + GAP + BORDER;
+            int firstY  = 0;
+            int barsStartY = firstY + (rowsUI - rows) * ROW_H;
+            int listH   = rowsUI * ROW_H;
 
-        int rowsRequested = Math.max(1, Config.peekVisibleRows());
-        List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
-        if (bars.isEmpty()) { event.setCanceled(true); return; }
-        int rows = Math.min(rowsRequested, bars.size());
-        int rowsUI = 5;
+            boolean inBars = pointInRectLocal(mxLocal, myLocal, baseHbX - BORDER, barsStartY - 3, bgW, rows * ROW_H);
+            boolean inList = pointInRectLocal(mxLocal, myLocal, baseHbX + (bgW - BORDER) + GAP, firstY - 3, LIST_W, listH);
+            boolean inNums = pointInRectLocal(mxLocal, myLocal, numX, firstY - 3, NUM_COL_W, listH);
+            boolean inDel  = pointInRectLocal(mxLocal, myLocal, 0, firstY - 3, DELETE_BOX_W, listH);
 
-        int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int deleteX = 0;
-        int numX    = deleteX + DELETE_BOX_W + GAP;
-        int baseHbX = numX + NUM_COL_W + GAP + BORDER;
-        int listX   = baseHbX + (bgW - BORDER) + GAP;
-        int firstY  = 0;
+            // If cursor already holds something (or JEI hover provides something), treat as external.
+            ItemStack external = getCarried(acs);
+            if (external.isEmpty()) external = getExternalDragStack(event.getMouseX(), event.getMouseY());
 
-        // bottom-up bars start inside the 5-row area
-        int barsStartY = firstY + (rowsUI - rows) * ROW_H;
-        int listH   = rowsUI * ROW_H;
+            pressLocalX = mxLocal;
+            pressLocalY = myLocal;
+            draggedBeyondThreshold = false;
 
-        boolean inBars = pointInRectLocal(mxLocal, myLocal, baseHbX - BORDER, barsStartY - 3, bgW, rows * ROW_H);
-        boolean inList = pointInRectLocal(mxLocal, myLocal, listX, firstY - 3, LIST_W, listH);
-        boolean inNums = pointInRectLocal(mxLocal, myLocal, numX, firstY - 3, NUM_COL_W, listH);
-        boolean inDel  = pointInRectLocal(mxLocal, myLocal, deleteX, firstY - 3, DELETE_BOX_W, listH);
-
-        // press bookkeeping
-        pressLocalX = mxLocal;
-        pressLocalY = myLocal;
-        lastLocalX  = mxLocal;
-        lastLocalY  = myLocal;
-        draggedBeyondThreshold = false;
-
-        if (inList || inNums || inDel) {
-            dragging = false;
-            dragSource = DragSource.NONE;
-            dragSrcHotbar = null;
-            dragSrcSlot = -1;
-            dragStack = ItemStack.EMPTY;
-            event.setCanceled(true);
-            return;
-        }
-
-        if (inBars) {
-            int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
-            int absRow = Mth.clamp(peekScrollRow + idxInWindow, 0, bars.size() - 1);
-            int relX = mxLocal - baseHbX;
-            int slot = Mth.clamp(relX / CELL, 0, Hotbar.SLOT_COUNT - 1);
-
-            ItemStack inCell = bars.get(absRow).getSlot(slot);
-            if (!inCell.isEmpty()) {
-                // start potential drag; actual swap only if draggedBeyondThreshold becomes true
-                dragging = true;
-                dragSource = DragSource.OVERLAY;
-                dragSrcHotbar = bars.get(absRow);
-                dragSrcSlot = slot;
-                dragStack = inCell.copy();
-            } else {
-                dragging = false;
-                dragSource = DragSource.NONE;
-                dragSrcHotbar = null;
-                dragSrcSlot = -1;
-                dragStack = ItemStack.EMPTY;
+            if (!external.isEmpty()) {
+                // External drop pending: DO NOT start overlay drag.
+                externalPressPending = true;
+                externalPressStack   = external.copy();
+                event.setCanceled(true);
+                return;
             }
+
+            // Otherwise, normal overlay drag only if clicking a non-empty cell
+            if (inBars) {
+                int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
+                int absRow = Mth.clamp(peekScrollRow + idxInWindow, 0, bars.size() - 1);
+                int relX = mxLocal - baseHbX;
+                int slot = Mth.clamp(relX / CELL, 0, Hotbar.SLOT_COUNT - 1);
+
+                ItemStack inCell = bars.get(absRow).getSlot(slot);
+                if (!inCell.isEmpty()) {
+                    dragging = true;
+                    dragSource = DragSource.OVERLAY;
+                    dragSrcHotbar = bars.get(absRow);
+                    dragSrcSlot = slot;
+                    dragStack = inCell.copy();
+                } else {
+                    dragging = false;
+                    dragSource = DragSource.NONE;
+                    dragSrcHotbar = null;
+                    dragSrcSlot = -1;
+                    dragStack = ItemStack.EMPTY;
+                }
+                event.setCanceled(true);
+                return;
+            }
+
+            // Clicked within overlay but not a cell (nums/list/delete) → we handle release.
             event.setCanceled(true);
+            return;
         }
+
+        // Press outside overlay: do nothing special here.
     }
-
-
 
     // ---------- DRAG ----------
     @SubscribeEvent
@@ -442,7 +434,7 @@ public final class ContainerPeekOverlay {
         long win = Minecraft.getInstance().getWindow().getWindow();
         if (GLFW.glfwGetMouseButton(win, GLFW.GLFW_MOUSE_BUTTON_LEFT) != GLFW.GLFW_PRESS) return;
 
-        // If cursor moves into the container region, cancel overlay-origin drag to avoid "double holding"
+        // If cursor moves into the container region, cancel overlay-origin drag to avoid double-handling
         if (event.getMouseX() >= acs.getGuiLeft()) {
             if (dragging && dragSource == DragSource.OVERLAY) {
                 dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
@@ -459,197 +451,166 @@ public final class ContainerPeekOverlay {
             draggedBeyondThreshold = true;
         }
 
-        lastLocalX = mxLocal;
-        lastLocalY = myLocal;
-
-        // If not overlay-dragging, try to adopt an external drag (carried/JEI)
-        if (!dragging) {
-            ItemStack ext = getExternalDragStack(event.getMouseX(), event.getMouseY());
-            if (!ext.isEmpty()) {
-                dragging = true;
-                dragSource = DragSource.EXTERNAL;
-                dragSrcHotbar = null;
-                dragSrcSlot = -1;
-                dragStack = ext.copy();
-            }
-        }
-
-        // Interacting with overlay → stop propagation
-        event.setCanceled(true);
+        event.setCanceled(true); // interacting with overlay
     }
 
-    // ---------- RELEASE ----------
+    // ---------- RELEASE (all overlay handling here; we cancel vanilla/creative) ----------
     @SubscribeEvent
     public static void onMouseReleasedPre(ScreenEvent.MouseButtonReleased.Pre event) {
         Screen s = event.getScreen();
         if (!(s instanceof AbstractContainerScreen<?> acs)) return;
         if (event.getButton() != 0) return; // LMB only
 
-        // If released inside the container GUI, cancel any overlay-origin ghost.
+        // If released inside container GUI, abort overlay drag ghost and let vanilla continue
         if (event.getMouseX() >= acs.getGuiLeft()) {
             if (dragging && dragSource == DragSource.OVERLAY) {
-                dragging = false;
-                dragSource = DragSource.NONE;
-                dragSrcHotbar = null;
-                dragSrcSlot = -1;
-                dragStack = ItemStack.EMPTY;
+                dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
             }
+            // also clear external pending (we didn't drop on overlay)
+            externalPressPending = false;
+            externalPressStack   = ItemStack.EMPTY;
             return;
         }
 
-        int mxLocal = (int) ((event.getMouseX() - lastOriginX) / lastScale);
-        int myLocal = (int) ((event.getMouseY() - lastOriginY) / lastScale);
+        // ----- Map mouse to overlay-local -----
+        final int mxLocal = (int) ((event.getMouseX() - lastOriginX) / lastScale);
+        final int myLocal = (int) ((event.getMouseY() - lastOriginY) / lastScale);
         if (mxLocal < 0 || myLocal < 0 || mxLocal >= lastNaturalW || myLocal >= lastNaturalH) return;
 
-        Minecraft mc = Minecraft.getInstance();
-        List<Hotbar> barsNow = HotbarManager.getCurrentPageHotbars();
+        final Minecraft mc = Minecraft.getInstance();
+        final List<Hotbar> barsNow = HotbarManager.getCurrentPageHotbars();
         if (barsNow.isEmpty()) {
-            dragging = false;
-            dragSource = DragSource.NONE;
-            dragSrcHotbar = null;
-            dragSrcSlot = -1;
-            dragStack = ItemStack.EMPTY;
+            dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            externalPressPending = false; externalPressStack = ItemStack.EMPTY;
             return;
         }
 
-        int rowsRequested = Math.max(1, Config.peekVisibleRows());
-        int rows = Math.min(rowsRequested, barsNow.size());
-        int rowsUI = 5;
+        final int rowsRequested = Math.max(1, Config.peekVisibleRows());
+        final int rows = Math.min(rowsRequested, barsNow.size());
+        final int rowsUI = 5;
 
-        int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int deleteX = 0;
-        int numX    = deleteX + DELETE_BOX_W + GAP;
-        int baseHbX = numX + NUM_COL_W + GAP + BORDER;
-        int listX   = baseHbX + (bgW - BORDER) + GAP;
-        int firstY  = 0;
+        final int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
+        final int deleteX = 0;
+        final int numX    = deleteX + DELETE_BOX_W + GAP;
+        final int baseHbX = numX + NUM_COL_W + GAP + BORDER;
+        final int listX   = baseHbX + (bgW - BORDER) + GAP;
+        final int firstY  = 0;
+        final int barsStartY = firstY + (rowsUI - rows) * ROW_H;
+        final int listH      = rowsUI * ROW_H;
 
-        int barsStartY = firstY + (rowsUI - rows) * ROW_H;
-        int listH   = rowsUI * ROW_H;
+        final boolean inBars = pointInRectLocal(mxLocal, myLocal, baseHbX - BORDER, barsStartY - 3, bgW, rows * ROW_H);
+        final boolean inList = pointInRectLocal(mxLocal, myLocal, listX, firstY - 3, LIST_W, listH);
+        final boolean inNums = pointInRectLocal(mxLocal, myLocal, numX, firstY - 3, NUM_COL_W, listH);
+        final boolean inDel  = pointInRectLocal(mxLocal, myLocal, deleteX, firstY - 3, DELETE_BOX_W, listH);
 
-        boolean inBars = pointInRectLocal(mxLocal, myLocal, baseHbX - BORDER, barsStartY - 3, bgW, rows * ROW_H);
-        boolean inList = pointInRectLocal(mxLocal, myLocal, listX, firstY - 3, LIST_W, listH);
-        boolean inNums = pointInRectLocal(mxLocal, myLocal, numX, firstY - 3, NUM_COL_W, listH);
-        boolean inDel  = pointInRectLocal(mxLocal, myLocal, deleteX, firstY - 3, DELETE_BOX_W, listH);
+        // ----- Determine drop stack -----
+        final boolean overlayDrag = dragging && dragSource == DragSource.OVERLAY && dragSrcHotbar != null && dragSrcSlot >= 0;
 
-        // External (carried / JEI) stack
-        ItemStack external = getExternalDragStack(event.getMouseX(), event.getMouseY());
-        boolean hasExternal = external != null && !external.isEmpty();
+        ItemStack dropStack;
+        if (overlayDrag) {
+            dropStack = dragStack;
+        } else if (externalPressPending && !externalPressStack.isEmpty()) {
+            dropStack = externalPressStack.copy();
+        } else {
+            ItemStack carriedNow = getCarried(acs);
+            dropStack = !carriedNow.isEmpty() ? carriedNow : getExternalDragStack(event.getMouseX(), event.getMouseY());
+        }
 
-        // Page list click
+        // ----- Page list -----
         if (inList) {
             int idx = Mth.clamp(pageScrollRow + (myLocal - firstY) / ROW_H, 0, HotbarManager.getPageNames().size() - 1);
             HotbarManager.setPage(idx, 0);
-            peekScrollRow = 0;
-            dragging = false;
-            dragSource = DragSource.NONE;
-            dragSrcHotbar = null;
-            dragSrcSlot = -1;
-            dragStack = ItemStack.EMPTY;
-            event.setCanceled(true);
-            return;
-        }
-
-        // Number column
-        if (inNums) {
-            ItemStack drop = !dragStack.isEmpty() ? dragStack : (hasExternal ? external : ItemStack.EMPTY);
-            if (!drop.isEmpty()) {
-                int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
-                int tRowIndex   = Mth.clamp(peekScrollRow + idxInWindow, 0, barsNow.size() - 1);
-                Hotbar tHb      = barsNow.get(tRowIndex);
-                int tSlot       = (dragSource == DragSource.OVERLAY && dragSrcSlot >= 0) ? dragSrcSlot : HotbarManager.getSlot();
-
-                ItemStack targetOld = tHb.getSlot(tSlot).copy();
-                tHb.setSlot(tSlot, drop.copy());
-                // NEW: mark for persistence
+            if (!overlayDrag && !dropStack.isEmpty()) {
+                int row = Mth.clamp(HotbarManager.getHotbar(), 0, HotbarManager.getCurrentPageHotbars().size() - 1);
+                int slot = HotbarManager.getSlot();
+                ItemStack previous = HotbarManager.getCurrentPageHotbars().get(row).getSlot(slot).copy();
+                HotbarManager.getCurrentPageHotbars().get(row).setSlot(slot, dropStack.copy());
                 HotbarManager.markDirty();
-
                 saveAndSync();
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-                dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
-                event.setCanceled(true);
-                return;
-            }
-        }
-
-        // Delete box
-        if (inDel) {
-            if (dragSource == DragSource.OVERLAY && dragSrcHotbar != null) {
-                dragSrcHotbar.setSlot(dragSrcSlot, ItemStack.EMPTY);
-                // NEW: mark for persistence
-                HotbarManager.markDirty();
-
-                saveAndSync();
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-            } else if (hasExternal) {
-                clearCarriedIfAny();
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 0.9f);
+                setCarried(acs, previous);
             }
             dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            externalPressPending = false; externalPressStack = ItemStack.EMPTY;
+            if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
             event.setCanceled(true);
             return;
         }
 
-        // Grid area
+        // ----- Delete box -----
+        if (inDel) {
+            if (overlayDrag) {
+                dragSrcHotbar.setSlot(dragSrcSlot, ItemStack.EMPTY);
+                HotbarManager.markDirty();
+                saveAndSync();
+            } else {
+                setCarried(acs, ItemStack.EMPTY);
+            }
+            dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            externalPressPending = false; externalPressStack = ItemStack.EMPTY;
+            if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 0.9f);
+            event.setCanceled(true);
+            return;
+        }
+
+        // ----- Number column (drop into selected slot index) -----
+        if (inNums && (overlayDrag || !dropStack.isEmpty())) {
+            int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
+            int tRowIndex   = Mth.clamp(peekScrollRow + idxInWindow, 0, barsNow.size() - 1);
+            Hotbar tHb      = barsNow.get(tRowIndex);
+            int tSlot       = overlayDrag ? dragSrcSlot : HotbarManager.getSlot();
+
+            ItemStack previous = tHb.getSlot(tSlot).copy();
+            tHb.setSlot(tSlot, dropStack.copy());
+            HotbarManager.markDirty();
+            saveAndSync();
+
+            if (!overlayDrag) setCarried(acs, previous);
+
+            dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            externalPressPending = false; externalPressStack = ItemStack.EMPTY;
+            if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
+            event.setCanceled(true);
+            return;
+        }
+
+        // ----- Grid area -----
         if (inBars) {
             int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
             int absRow = Mth.clamp(peekScrollRow + idxInWindow, 0, barsNow.size() - 1);
             int relX = mxLocal - baseHbX;
             int slot = Mth.clamp(relX / CELL, 0, Hotbar.SLOT_COUNT - 1);
 
-            ItemStack externalNow = getExternalDragStack(event.getMouseX(), event.getMouseY());
-            boolean hasExtNow = externalNow != null && !externalNow.isEmpty();
-            boolean overlayDrag = dragging && dragSource == DragSource.OVERLAY && dragSrcHotbar != null && dragSrcSlot >= 0;
-
-            boolean handled = false;
-
-            // 1) Swap between two overlay slots (drag from overlay -> overlay)
             if (overlayDrag) {
+                // Overlay-to-overlay swap
                 ItemStack a = dragSrcHotbar.getSlot(dragSrcSlot);
                 ItemStack b = barsNow.get(absRow).getSlot(slot);
                 dragSrcHotbar.setSlot(dragSrcSlot, b);
                 barsNow.get(absRow).setSlot(slot, a);
-                // NEW: mark for persistence
                 HotbarManager.markDirty();
-
-                handled = true;
-            }
-            // 2) External stack (carried/JEI) dropped onto overlay slot
-            else if (hasExtNow) {
-                barsNow.get(absRow).setSlot(slot, externalNow.copy());
-                // NEW: mark for persistence
+                saveAndSync();
+            } else if (!dropStack.isEmpty()) {
+                // External (cursor / JEI) → overlay : ALWAYS swap (occupied or empty)
+                ItemStack previous = barsNow.get(absRow).getSlot(slot).copy();
+                barsNow.get(absRow).setSlot(slot, dropStack.copy());
                 HotbarManager.markDirty();
-
-                clearCarriedIfAny();
-                handled = true;
-            }
-            // 3) Simple click on a slot (activation)
-            else {
+                saveAndSync();
+                setCarried(acs, previous); // cursor now holds previous for re-placement or delete
+            } else {
+                // Simple click = select slot
                 HotbarManager.setSlot(slot);
-                handled = true;
             }
 
-            if (handled) {
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-            }
-
-            // If a drag started but wasn't handled above and we modified nothing, restore source (safety)
-            if (!handled && overlayDrag && !dragStack.isEmpty() && dragSrcHotbar != null) {
-                dragSrcHotbar.setSlot(dragSrcSlot, dragStack);
-                // NEW: mark for persistence
-                HotbarManager.markDirty();
-            }
-
-            saveAndSync();
-            draggedBeyondThreshold = false;
             dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            externalPressPending = false; externalPressStack = ItemStack.EMPTY;
+
+            if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
             event.setCanceled(true);
+            return;
         }
+
+        // Nothing handled; still consume so vanilla doesn't do odd things at the overlay edge
+        event.setCanceled(true);
     }
-
-
-
-
-
 
     // ---------- SCROLL ----------
     @SubscribeEvent
@@ -673,14 +634,13 @@ public final class ContainerPeekOverlay {
         int rowsUI = 5;
 
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
-        int deleteX = 0;
-        int numX    = deleteX + DELETE_BOX_W + GAP;
+        int numX    = 0 + DELETE_BOX_W + GAP;
         int baseHbX = numX + NUM_COL_W + GAP + BORDER;
-        int listX   = baseHbX + (bgW - BORDER) + GAP;
         int firstY  = 0;
 
         int barsStartY = firstY + (rowsUI - rows) * ROW_H;
-        int listH  = rowsUI * ROW_H;
+        int listX   = baseHbX + (bgW - BORDER) + GAP;
+        int listH   = rowsUI * ROW_H;
 
         boolean inBars = pointInRectLocal(mxLocal, myLocal, baseHbX - BORDER, barsStartY - 3, bgW, rows * ROW_H);
         boolean inList = pointInRectLocal(mxLocal, myLocal, listX, firstY - 3, LIST_W, listH);
@@ -707,16 +667,16 @@ public final class ContainerPeekOverlay {
             int newSel = Math.floorMod(selected - step, totalBars);
 
             if (newSel != selected) {
-                // queue for safe commit
-                WheelSwitchCoordinator.request(newSel);
-
                 // keep requested row visible immediately (bottom-up window)
-                int visible = Math.min(totalBars, rows);
+                int visibleLocal = Math.min(totalBars, rows);
                 if (newSel < peekScrollRow) {
                     peekScrollRow = newSel;
-                } else if (newSel >= peekScrollRow + visible) {
-                    peekScrollRow = Math.max(0, newSel - visible + 1);
+                } else if (newSel >= peekScrollRow + visibleLocal) {
+                    peekScrollRow = Math.max(0, newSel - visibleLocal + 1);
                 }
+
+                // queue to be committed safely elsewhere
+                WheelSwitchCoordinator.request(newSel);
 
                 // click sound
                 if (Config.enableSounds() && Minecraft.getInstance().player != null) {
@@ -726,12 +686,4 @@ public final class ContainerPeekOverlay {
             event.setCanceled(true);
         }
     }
-
-
-
-
-
-
-
-
 }
