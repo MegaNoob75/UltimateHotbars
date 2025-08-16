@@ -5,15 +5,20 @@
 <img width="954" height="646" alt="2025-08-01_18 42 34" src="https://github.com/user-attachments/assets/b65cbc38-751e-4eb1-a8d0-67463d239686" />
 <img width="954" height="646" alt="2025-08-01_18 42 13" src="https://github.com/user-attachments/assets/ddf5fe5a-c68f-48a5-ae8f-0d44c4151149" />
 <img width="954" height="646" alt="2025-08-01_18 42 19" src="https://github.com/user-attachments/assets/515ec121-3382-4dab-864f-e2d4e5a233d1" />
-<img width="954" height="646" alt="2025-08-01_18 42 50" src="https://github.com/user-attachments/assets/6a11f979-caf2-41f6-9e71-2d756262f76a" />
+<img width="2181" height="1093" alt="2025-08-16_06 22 30" src="https://github.com/user-attachments/assets/c8f4a017-63ea-441b-b2cc-366987addad8" />
 
 
 
 **UltimateHotbars** is a Minecraft Forge mod (1.20.1 / Forge) that gives you virtually unlimited custom hotbars and pages. Easily switch between them in-game or in any inventory screen, save and restore layouts, and keep your tools, and resources organized!
 
-This is the new Version 2 of the mod. Version 1 will no longer be worked on or updated so please switch to the V2 branch/version.
+**NO longer necessary because V2 now creates a new hotbars.dat file in the world folder and is no longer global.**
+~~This is the new Version 2 of the mod. Version 1 will no longer be worked on or updated so please switch to the V2 branch/version.
 In the config menu hit the Purge Data Files button if your comming from V1.x.x as the hot bar data files are not compatable and it will be all messed up. 
-(Sorry you will have to start fresh with your Hot bars.)
+(Sorry you will have to start fresh with your Hot bars.)~~
+
+V2.1.x
+Adds new overlay of hot bars to inventory/container screens.
+has drag and drop support from the creative inventory or JEI.
 
 ---
 
@@ -21,6 +26,10 @@ In the config menu hit the Purge Data Files button if your comming from V1.x.x a
 
 - **Virtual Hotbars & Pages**  
   Create up to 100 hotbars per page (configurable), and as many pages as you like.  
+- **Peek hotbar popup**
+  Hold ALT (by default can be changed) to popup a list of hotbars from the 
+  current page. You can click a slot to change to it, page list to switch pages and drag 
+  and drop support.
 - **Seamless Switching**  
   Switch hotbars or pages via keybinds or mouse wheel—even inside GUIs and containers.  
 - **Persistent Storage**  
@@ -43,7 +52,7 @@ In the config menu hit the Purge Data Files button if your comming from V1.x.x a
 | ➡️ Next Page (Ctrl + `=`)        | `Ctrl + =`          |
 | ⬅️ Previous Page (Ctrl + `-`)    | `Ctrl + -`          |
 | ❌ Clear Current Hotbar          | `Delete`            |
-
+|  Popup for hotbars             | `Alt`               |
 > **Tip:** You can rebind all of these in the Controls menu.
 
 ---
@@ -81,7 +90,6 @@ Accessible via the in-game **Config** button in the Hotbar GUI, or by editing `c
 6. **Delete** key clears the current hotbar instantly.  
 7. **Close GUI** with `Esc` key.
 
-All changes are auto-saved as you edit—no manual steps required.
 
 ## License
 
