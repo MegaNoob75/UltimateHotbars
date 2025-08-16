@@ -55,6 +55,12 @@ public class Config {
             BUILDER.comment("Number of hotbar rows visible in PeekHotbarScreen")
                     .defineInRange("peekRows", 5, 1, 20);
 
+    public static final ForgeConfigSpec.IntValue SCROLL_THROTTLE_MS =
+            BUILDER.comment("Minimum delay (ms) between scroll-wheel hotbar commits.\n" +
+                            "Lower = snappier but riskier on slow PCs; higher = safer but less responsive.")
+                    .defineInRange("scrollThrottleMs", 50, 10, 300);
+
+
     public static final ForgeConfigSpec SPEC = BUILDER.build();
 
     // Backing fields
@@ -80,8 +86,13 @@ public class Config {
         hudLabelBackgroundColor = toFloatArray(HUD_LABEL_BG_COLOR.get());
         hudLabelTextColor = toFloatArray(HUD_LABEL_TEXT_COLOR.get());
         hoverBorderColor = toFloatArray(HOVER_BORDER_COLOR.get());
+
+        // NEW: pull throttle from spec
+        scrollThrottleMs = SCROLL_THROTTLE_MS.get();
+
         // maxHotbarsPerPage is loaded elsewhere in GUI logic
     }
+
 
     // Accessors
     public static boolean enableSounds() { return enableSounds; }
@@ -103,8 +114,23 @@ public class Config {
         save();
     }
 
-    public static int getScrollThrottleMs() { return scrollThrottleMs; }
-    public static void setScrollThrottleMs(int ms) { scrollThrottleMs = ms; save(); }
+    public static int getScrollThrottleMs() {
+        return scrollThrottleMs;
+    }
+
+    public static void setScrollThrottleMs(int ms) {
+        // clamp 10..300 ms so UI and backend always agree
+        if (ms < 10) ms = 10;
+        if (ms > 300) ms = 300;
+
+        scrollThrottleMs = ms;
+
+        // keep Forge spec in sync so it persists to disk
+        try { SCROLL_THROTTLE_MS.set(ms); } catch (Throwable ignored) {}
+
+        save(); // your save() is a no-op (Forge auto-saves), but keep the call for parity
+    }
+
 
     // scrollThrottleMs field
     private static int scrollThrottleMs = 50;
@@ -129,7 +155,12 @@ public class Config {
         hoverBorderColor = new float[]{1,1,1,1};
         // peekRows remains at user-configured value
         // maxHotbarsPerPage unchanged
+
+        // NEW: reset throttle
+        scrollThrottleMs = 50;
+        try { SCROLL_THROTTLE_MS.set(scrollThrottleMs); } catch (Throwable ignored) {}
     }
+
 
     public static void save() {
         // No-op; Forge auto-saves
@@ -145,5 +176,9 @@ public class Config {
         HUD_LABEL_TEXT_COLOR.set(toDoubleList(hudLabelTextColor));
         HOVER_BORDER_COLOR.set(toDoubleList(hoverBorderColor));
         // PEEK_ROWS not modified here
+
+        // NEW: ensure throttle writes to the spec too
+        SCROLL_THROTTLE_MS.set(scrollThrottleMs);
     }
+
 }

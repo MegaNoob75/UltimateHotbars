@@ -20,10 +20,14 @@ public class Hotbar {
         return slots[index];
     }
 
-    public void setSlot(int index, ItemStack stack) {
-        slots[index] = stack;
-        isEmpty = checkEmpty();
+    public void setSlot(int index, net.minecraft.world.item.ItemStack stack) {
+        if (index < 0 || index >= SLOT_COUNT) return;
+        this.slots[index] = (stack == null || stack.isEmpty())
+                ? net.minecraft.world.item.ItemStack.EMPTY
+                : stack.copy();
+        this.isEmpty = checkEmpty();
     }
+
 
     public boolean isEmpty() {
         return isEmpty;

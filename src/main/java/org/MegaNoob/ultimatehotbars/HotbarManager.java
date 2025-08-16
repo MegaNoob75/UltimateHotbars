@@ -2,6 +2,7 @@ package org.MegaNoob.ultimatehotbars;
 
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.Mth;
@@ -19,7 +20,6 @@ import net.minecraft.client.Minecraft;
 import java.io.IOException;
 import net.minecraft.world.level.storage.LevelResource;
 import java.net.SocketAddress;
-
 import net.minecraft.client.multiplayer.ClientPacketListener;
 import net.minecraft.network.Connection;
 
@@ -272,9 +272,23 @@ public class HotbarManager {
         if (idx < 0) setHotbar(0, "clamp");
     }
 
+    // Keep this 1-arg method for updating the *selected slot index* only.
     public static void setSlot(int slot) {
         currentSlot = Math.max(0, Math.min(slot, Hotbar.SLOT_COUNT - 1));
     }
+
+    // Optional overload: set the ItemStack in the *current virtual hotbar*.
+// This avoids breaking any spots where you might have started using 2-args.
+    public static void setSlot(int index, net.minecraft.world.item.ItemStack stack) {
+        clampHotbarIndex();
+        if (index < 0 || index >= Hotbar.SLOT_COUNT) return;
+        Hotbar hb = getCurrentHotbar();
+        // Hotbar.setSlot will copy, but copying here is also fine/safe.
+        hb.setSlot(index, (stack == null || stack.isEmpty()) ? net.minecraft.world.item.ItemStack.EMPTY : stack.copy());
+        markDirty();
+    }
+
+
 
     // ================================================================
     // Syncing to Game & Networking
@@ -332,12 +346,12 @@ public class HotbarManager {
      * the real hotbar actually differs from our virtual one.
      * @return true if we saw any differences and updated.
      */
+    // HotbarManager.java
     public static boolean syncFromGameIfChanged() {
         clampHotbarIndex();
 
-        // If a queued wheel switch is pending/committing, skip pull this tick.
-        // This prevents snapshotting the wrong row during rapid oscillation.
-        if (wheelSwitchPending) {
+        // ⛔ Do not pull while a scroll-wheel switch is pending/committing
+        if (isWheelSwitchPending()) {
             return false;
         }
 
@@ -359,6 +373,7 @@ public class HotbarManager {
         }
         return changed;
     }
+
 
 
     /**
@@ -410,42 +425,50 @@ public class HotbarManager {
 
 
     /** Persist hotbars **only** if something has changed, via an atomic write. */
+    // HotbarManager.java
     public static void saveHotbars() {
         if (!dirty) return;  // nothing to do
 
         try {
-            // 1) Build NBT
+            // 1) Build NBT (new hierarchical format)
             CompoundTag root = new CompoundTag();
-            CompoundTag map  = new CompoundTag();
-            for (int pi = 0; pi < pages.size(); pi++) {
-                List<Hotbar> page = pages.get(pi);
-                for (int hi = 0; hi < page.size(); hi++) {
-                    int idx = pi * Config.getMaxHotbarsPerPage() + hi;
-                    map.put(String.valueOf(idx), page.get(hi).serializeNBT());
-                }
-            }
-            root.put("HotbarsMap", map);
+            ListTag pagesTag = new ListTag();
 
+            for (int pi = 0; pi < pages.size(); pi++) {
+                CompoundTag pageTag = new CompoundTag();
+                pageTag.putString("Name", pi < pageNames.size() ? pageNames.get(pi) : ("Page " + (pi + 1)));
+
+                List<Hotbar> page = pages.get(pi);
+                ListTag hotbarsTag = new ListTag();
+                for (int hi = 0; hi < page.size(); hi++) {
+                    CompoundTag hbTag = page.get(hi).serializeNBT();
+                    hbTag.putInt("Index", hi); // optional, informative
+                    hotbarsTag.add(hbTag);
+                }
+                pageTag.put("Hotbars", hotbarsTag);
+                pagesTag.add(pageTag);
+            }
+            root.put("Pages", pagesTag);
+
+            // 2) Also include legacy PageNames for older readers (harmless)
             CompoundTag namesTag = new CompoundTag();
             for (int i = 0; i < pageNames.size(); i++) {
                 namesTag.putString(String.valueOf(i), pageNames.get(i));
             }
             root.put("PageNames", namesTag);
 
-            // 2) Ensure parent dir
+            // 3) Ensure parent dir
             Path savePath = hotbarsFile();
             Files.createDirectories(savePath.getParent());
 
-            // 3) Write to .tmp file
+            // 4) Atomic write
             Path tmp = savePath.resolveSibling(savePath.getFileName() + ".tmp");
             NbtIo.write(root, tmp.toFile());
-
-            // 4) Replace atomically
             Files.move(tmp, savePath,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
 
-            // 5) Track and clear dirty
+            // 5) Track & clear dirty
             lastSavedPage   = getPage();
             lastSavedHotbar = getHotbar();
             lastSavedSlot   = getSlot();
@@ -460,10 +483,11 @@ public class HotbarManager {
 
 
 
+    // HotbarManager.java
     public static void loadHotbars() {
         Path file = hotbarsFile();
         if (!Files.exists(file)) {
-            // no saved hotbars for this world → default
+            // default: one empty page
             pages.clear();
             pageNames.clear();
             addPageInternal();
@@ -471,64 +495,74 @@ public class HotbarManager {
         }
         try {
             CompoundTag root = NbtIo.read(file.toFile());
-            if (root == null || !root.contains("HotbarsMap", Tag.TAG_COMPOUND)) {
+            pages.clear();
+            pageNames.clear();
+
+            // NEW format first
+            if (root != null && root.contains("Pages", Tag.TAG_LIST)) {
+                ListTag pagesTag = root.getList("Pages", Tag.TAG_COMPOUND);
+                for (int pi = 0; pi < pagesTag.size(); pi++) {
+                    CompoundTag pageTag = pagesTag.getCompound(pi);
+                    String name = pageTag.contains("Name", Tag.TAG_STRING)
+                            ? pageTag.getString("Name")
+                            : ("Page " + (pi + 1));
+                    pageNames.add(name);
+
+                    List<Hotbar> page = new ArrayList<>();
+                    if (pageTag.contains("Hotbars", Tag.TAG_LIST)) {
+                        ListTag hotbarsTag = pageTag.getList("Hotbars", Tag.TAG_COMPOUND);
+                        for (int hi = 0; hi < hotbarsTag.size(); hi++) {
+                            CompoundTag hbTag = hotbarsTag.getCompound(hi);
+                            page.add(Hotbar.deserializeNBT(hbTag));
+                        }
+                    }
+                    if (page.isEmpty()) page.add(new Hotbar());
+                    pages.add(page);
+                }
+
+            } else if (root != null && root.contains("HotbarsMap", Tag.TAG_COMPOUND)) {
+                // Legacy fallback (your existing logic)
+                CompoundTag map = root.getCompound("HotbarsMap");
+                int maxIdx = map.getAllKeys().stream()
+                        .mapToInt(Integer::parseInt)
+                        .max()
+                        .orElse(-1);
+                int pageCount = (maxIdx / Config.getMaxHotbarsPerPage()) + 1;
+
+                for (int pi = 0; pi < pageCount; pi++) {
+                    pages.add(new ArrayList<>());
+                    pageNames.add("Page " + (pi + 1));
+                }
+
+                for (String key : map.getAllKeys()) {
+                    int idx = Integer.parseInt(key);
+                    int pi  = idx / Config.getMaxHotbarsPerPage();
+                    int hi  = idx % Config.getMaxHotbarsPerPage();
+                    List<Hotbar> page = pages.get(pi);
+                    while (page.size() <= hi) page.add(new Hotbar());
+                    page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
+                }
+                for (List<Hotbar> pg : pages) if (pg.isEmpty()) pg.add(new Hotbar());
+            } else {
                 // malformed → reset
-                pages.clear();
-                pageNames.clear();
                 addPageInternal();
                 return;
             }
 
-            CompoundTag map = root.getCompound("HotbarsMap");
-            int maxIdx = map.getAllKeys().stream()
-                    .mapToInt(Integer::parseInt)
-                    .max()
-                    .orElse(-1);
-            int pageCount = (maxIdx / Config.getMaxHotbarsPerPage()) + 1;
-
-            pages.clear();
-            pageNames.clear();
-            for (int pi = 0; pi < pageCount; pi++) {
-                pages.add(new ArrayList<>());
-                pageNames.add("Page " + (pi + 1));
-            }
-
-            for (String key : map.getAllKeys()) {
-                int idx = Integer.parseInt(key);
-                int pi  = idx / Config.getMaxHotbarsPerPage();
-                int hi  = idx % Config.getMaxHotbarsPerPage();
-                List<Hotbar> page = pages.get(pi);
-                while (page.size() <= hi) page.add(new Hotbar());
-                page.set(hi, Hotbar.deserializeNBT(map.getCompound(key)));
-            }
-            // ensure no empty page
-            for (List<Hotbar> pg : pages) {
-                if (pg.isEmpty()) pg.add(new Hotbar());
-            }
-
-            // restore names
-            CompoundTag namesTag = root.getCompound("PageNames");
-            for (String k : namesTag.getAllKeys()) {
-                int pi = Integer.parseInt(k);
-                if (pi >= 0 && pi < pageNames.size()) {
-                    pageNames.set(pi, namesTag.getString(k));
-                }
-            }
-
-            // load UI state
+            // Restore saved UI state
             HotbarState.loadState();
-            var player = Minecraft.getInstance().player;
+            var player = net.minecraft.client.Minecraft.getInstance().player;
             if (player != null) player.getInventory().selected = currentSlot;
 
         } catch (Exception e) {
             System.err.println("[UltimateHotbars] Error loading hotbars:");
             e.printStackTrace();
-            // fallback to default
             pages.clear();
             pageNames.clear();
             addPageInternal();
         }
     }
+
 
 
 
@@ -560,6 +594,12 @@ public class HotbarManager {
      */
     public static boolean syncFromPlayerInventory(net.minecraft.world.entity.player.Player player) {
         clampHotbarIndex();
+
+        // Prevent snapshotting during a pending/committing wheel switch
+        if (isWheelSwitchPending()) {
+            return false;
+        }
+
         if (player == null) return false;
 
         Hotbar vb = getCurrentHotbar();
@@ -577,5 +617,7 @@ public class HotbarManager {
         }
         return changed;
     }
+
+
 
 }

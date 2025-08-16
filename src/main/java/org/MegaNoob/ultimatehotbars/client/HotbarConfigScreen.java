@@ -106,7 +106,6 @@ public class HotbarConfigScreen extends Screen {
                 Component.literal("Scroll Throttle (ms): minimum 10 ms")) {
             @Override
             protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
-                // center in the 240px widget:
                 g.drawCenteredString(
                         Minecraft.getInstance().font,
                         getMessage().getString(),
@@ -119,9 +118,9 @@ public class HotbarConfigScreen extends Screen {
         });
         y += 20;
 
-// Explanation, line 2
+        // Explanation, line 2  (updated to match config spec 300 max)
         generalWidgets.add(new AbstractWidget(width/2 - 120, y, 240, 20,
-                Component.literal("default 50 ms, maximum 150 ms")) {
+                Component.literal("default 50 ms, maximum 300 ms")) {
             @Override
             protected void renderWidget(GuiGraphics g, int mx, int my, float pt) {
                 g.drawCenteredString(
@@ -136,7 +135,7 @@ public class HotbarConfigScreen extends Screen {
         });
         y += 24;
 
-// Explanation, line 3
+        // Explanation, line 3
         generalWidgets.add(new AbstractWidget(width/2 - 120, y, 240, 20,
                 Component.literal("Adjust only if you see duplicates or want to test faster scroll")) {
             @Override
@@ -153,24 +152,23 @@ public class HotbarConfigScreen extends Screen {
         });
         y += 28;
 
-        // Throttle slider
+        // Throttle slider  (now 10..300ms, normalized properly)
         generalWidgets.add(new AbstractSliderButton(width/2-100, y, 200, 20,
                 Component.literal("Scroll Throttle: " + Config.getScrollThrottleMs() + " ms"),
-                (Config.getScrollThrottleMs() - 10) / 140.0) {
+                (Config.getScrollThrottleMs() - 10) / 290.0) {
             @Override protected void updateMessage() {
-                int v = 10 + (int)(this.value * 140);
+                int v = 10 + (int)Math.round(this.value * 290);
                 setMessage(Component.literal("Scroll Throttle: " + v + " ms"));
             }
             @Override protected void applyValue() {
-                int v = 10 + (int)(this.value * 140);
-                Config.setScrollThrottleMs(v);
+                int v = 10 + (int)Math.round(this.value * 290);
+                Config.setScrollThrottleMs(v); // setter clamps & writes to spec
                 updateMessage();
                 Config.syncToForgeConfig();
             }
         });
         y += 24;
         // --- End Scroll Throttle Option ---
-
 
         // Peek Hotbar Rows setting
         generalWidgets.add(
@@ -187,8 +185,6 @@ public class HotbarConfigScreen extends Screen {
                         )
         );
         y += 24;
-
-
 
         // Color sliders & previews
         addColorSliders(colorWidgets, "Highlighted Hotbar", Config.highlightColor(), arr->{
@@ -216,7 +212,8 @@ public class HotbarConfigScreen extends Screen {
     }
 
 
-   protected void renderTabContent() {
+
+    protected void renderTabContent() {
         clearWidgets();
         int yOffset = (currentTab == Tab.COLORS) ? -scrollOffset : 0;
 
@@ -274,11 +271,6 @@ public class HotbarConfigScreen extends Screen {
             init();
         }).bounds(width - 110, height - 30, 100, 20).build());
     }
-
-
-
-
-
 
 
     private void addColorSliders(List<AbstractWidget> list, String groupTitle, float[] rgba, Consumer<float[]> updateTarget) {

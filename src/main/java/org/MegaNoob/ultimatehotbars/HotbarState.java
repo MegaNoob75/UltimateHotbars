@@ -8,7 +8,6 @@ import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraftforge.fml.loading.FMLPaths;
-
 import java.io.IOException;
 import java.net.SocketAddress;
 import java.nio.file.Files;

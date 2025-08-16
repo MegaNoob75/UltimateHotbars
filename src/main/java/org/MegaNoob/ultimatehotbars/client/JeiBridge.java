@@ -10,7 +10,6 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
-
 import java.lang.reflect.Method;
 import java.util.Optional;
 

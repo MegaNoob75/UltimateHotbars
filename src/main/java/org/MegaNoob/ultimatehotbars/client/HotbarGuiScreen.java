@@ -35,6 +35,9 @@ public class HotbarGuiScreen extends Screen {
     private int _renderBtnX, _renderDelX, _renderLabelX, _renderBaseX, _renderListX, _renderBtnW;
     private int hotbarScrollRow = 0;
 
+    // Throttle for wheel/arrow navigation inside this screen
+    private static long lastWheelAtMs = 0L;
+
     private static final long INITIAL_DELAY_MS  = 300;
     private static final long REPEAT_INTERVAL_MS = 100;
     private final boolean[] keyHeld       = new boolean[4];
@@ -306,9 +309,8 @@ public class HotbarGuiScreen extends Screen {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double delta) {
-        // PAGE LIST SCROLL
+        // PAGE LIST SCROLL (unchanged)
         if (this.pageListWidget.isMouseOver(mx, my)) {
-            // block if still saving
             if (saveInProgress) return true;
             saveInProgress = true;
             try {
@@ -317,7 +319,7 @@ public class HotbarGuiScreen extends Screen {
                 int dir  = delta > 0 ? -1 : 1;
                 int wrapped = ((curr + dir) % cnt + cnt) % cnt;
 
-                // only snapshot & save if the real hotbar actually changed
+                // Only snapshot & save if the real hotbar actually changed
                 if (HotbarManager.syncFromGameIfChanged()) {
                     HotbarManager.saveHotbars();
                 }
@@ -336,10 +338,11 @@ public class HotbarGuiScreen extends Screen {
             return true;
         }
 
-        // HOTBAR SCROLL (via wheel) — now goes through moveHotbarSelection
+        // HOTBAR SCROLL (via wheel) — route through guarded path
         moveHotbarSelection(delta > 0 ? -1 : 1);
         return true;
     }
+
 
 
 
@@ -722,27 +725,38 @@ public class HotbarGuiScreen extends Screen {
      * Handles arrow-key or scroll-wheel navigation in the GUI.
      * Blocks any new nav until the current sync+save+switch finishes.
      */
+    /**
+     * Handles arrow-key or scroll-wheel navigation in the GUI.
+     * Uses both the global key throttle and a local wheel/arrow throttle,
+     * and queues the switch via WheelSwitchCoordinator to prevent
+     * save/sync races (duplication on rapid oscillation).
+     */
     private void moveHotbarSelection(int direction) {
-        if (!org.MegaNoob.ultimatehotbars.client.KeyInputHandler.canNavigate()) return;  // ← throttle
+        if (direction == 0) return;
+
+        // Global throttle (matches your hotkeys behavior)
+        if (!org.MegaNoob.ultimatehotbars.client.KeyInputHandler.canNavigate()) return;
+
+        // Local throttle from config (clamped 10..300 ms) to align with wheel speed
+        final int configured = Config.getScrollThrottleMs();
+        final int throttleMs = Math.max(10, Math.min(configured, 300));
+        final long now = System.currentTimeMillis();
+        if (now - lastWheelAtMs < throttleMs) return;
+        lastWheelAtMs = now;
+
+        // Compute target with wrap-around
         List<Hotbar> pageHotbars = HotbarManager.getCurrentPageHotbars();
         int totalRows = pageHotbars.size();
-        if (totalRows <= 1) return;
+        if (totalRows <= 0) return;
 
-        // ▶ Only snapshot & save if there are unsaved edits
-        if (HotbarManager.syncFromGameIfChanged()) {
-            HotbarManager.saveHotbars();
-        }
-
-
-        // 1) Compute & apply new hotbar index
         int selHb  = HotbarManager.getHotbar();
-        int newSel = ((selHb + direction) % totalRows + totalRows) % totalRows;
-        HotbarManager.setHotbar(newSel, "arrow");
+        int newSel = Math.floorMod(selHb + direction, totalRows);
+        if (newSel == selHb) return;
 
-        // 2) Push that virtual hotbar into the real inventory
-        HotbarManager.syncToGame();
+        // Queue the switch (snapshot/save/sync handled centrally to avoid races)
+        org.MegaNoob.ultimatehotbars.client.WheelSwitchCoordinator.request(newSel);
 
-        // 3) Adjust scroll-window so the newSel is visible
+        // Pre-scroll so the target row is visible immediately (visual only)
         int rowH   = 22;
         int topY   = pageInput.getY() + pageInput.getHeight() + 10;
         int avail  = this.height - topY - 30;
@@ -750,15 +764,16 @@ public class HotbarGuiScreen extends Screen {
         if (newSel < hotbarScrollRow) hotbarScrollRow = newSel;
         else if (newSel >= hotbarScrollRow + visible)
             hotbarScrollRow = newSel - visible + 1;
-        hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, totalRows - visible));
+        hotbarScrollRow = Math.max(0, Math.min(hotbarScrollRow, Math.max(0, totalRows - visible)));
 
-        // 4) Play feedback sound
+        // Sound feedback (matches other UIs)
         if (Config.enableSounds() && Minecraft.getInstance().player != null) {
             Minecraft.getInstance().player.playSound(
-                    SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.4f
+                    SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f
             );
         }
     }
+
 
 
 
