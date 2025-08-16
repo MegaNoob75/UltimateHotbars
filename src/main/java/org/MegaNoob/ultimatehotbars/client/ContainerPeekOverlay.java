@@ -489,7 +489,11 @@ public final class ContainerPeekOverlay {
         // If released inside the container GUI, cancel any overlay-origin ghost.
         if (event.getMouseX() >= acs.getGuiLeft()) {
             if (dragging && dragSource == DragSource.OVERLAY) {
-                dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+                dragging = false;
+                dragSource = DragSource.NONE;
+                dragSrcHotbar = null;
+                dragSrcSlot = -1;
+                dragStack = ItemStack.EMPTY;
             }
             return;
         }
@@ -501,7 +505,11 @@ public final class ContainerPeekOverlay {
         Minecraft mc = Minecraft.getInstance();
         List<Hotbar> barsNow = HotbarManager.getCurrentPageHotbars();
         if (barsNow.isEmpty()) {
-            dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            dragging = false;
+            dragSource = DragSource.NONE;
+            dragSrcHotbar = null;
+            dragSrcSlot = -1;
+            dragStack = ItemStack.EMPTY;
             return;
         }
 
@@ -530,11 +538,14 @@ public final class ContainerPeekOverlay {
 
         // Page list click
         if (inList) {
-            int idx = Mth.clamp(pageScrollRow + (myLocal - (firstY)) / ROW_H, 0, HotbarManager.getPageNames().size() - 1);
+            int idx = Mth.clamp(pageScrollRow + (myLocal - firstY) / ROW_H, 0, HotbarManager.getPageNames().size() - 1);
             HotbarManager.setPage(idx, 0);
             peekScrollRow = 0;
-            if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-            dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+            dragging = false;
+            dragSource = DragSource.NONE;
+            dragSrcHotbar = null;
+            dragSrcSlot = -1;
+            dragStack = ItemStack.EMPTY;
             event.setCanceled(true);
             return;
         }
@@ -550,28 +561,10 @@ public final class ContainerPeekOverlay {
 
                 ItemStack targetOld = tHb.getSlot(tSlot).copy();
                 tHb.setSlot(tSlot, drop.copy());
+                // NEW: mark for persistence
+                HotbarManager.markDirty();
 
                 saveAndSync();
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
-                dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
-                event.setCanceled(true);
-                return;
-            }
-
-            long win = Minecraft.getInstance().getWindow().getWindow();
-            boolean shiftDown = GLFW.glfwGetKey(win, GLFW.GLFW_KEY_LEFT_SHIFT) == GLFW.GLFW_PRESS
-                    || GLFW.glfwGetKey(win, GLFW.GLFW_KEY_RIGHT_SHIFT) == GLFW.GLFW_PRESS;
-
-            int idxInWindow = Mth.clamp((myLocal - barsStartY) / ROW_H, 0, rows - 1);
-            int targetRow   = Mth.clamp(peekScrollRow + idxInWindow, 0, barsNow.size() - 1);
-            int targetSlot  = (dragSource == DragSource.OVERLAY && dragSrcSlot >= 0) ? dragSrcSlot : HotbarManager.getSlot();
-
-            if (shiftDown) {
-                HotbarManager.setHotbar(targetRow, "container-peek-activate");
-                HotbarManager.setSlot(targetSlot);
-                HotbarManager.syncToGame();
-                forceSelectSlotClientAndServer(targetSlot);
-
                 if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
                 dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
                 event.setCanceled(true);
@@ -583,6 +576,9 @@ public final class ContainerPeekOverlay {
         if (inDel) {
             if (dragSource == DragSource.OVERLAY && dragSrcHotbar != null) {
                 dragSrcHotbar.setSlot(dragSrcSlot, ItemStack.EMPTY);
+                // NEW: mark for persistence
+                HotbarManager.markDirty();
+
                 saveAndSync();
                 if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
             } else if (hasExternal) {
@@ -607,30 +603,41 @@ public final class ContainerPeekOverlay {
 
             boolean handled = false;
 
-            if (overlayDrag && draggedBeyondThreshold) {
-                // real drag-drop swap
-                ItemStack a = dragSrcHotbar.getSlot(dragSrcSlot).copy();
-                ItemStack b = barsNow.get(absRow).getSlot(slot).copy();
+            // 1) Swap between two overlay slots (drag from overlay -> overlay)
+            if (overlayDrag) {
+                ItemStack a = dragSrcHotbar.getSlot(dragSrcSlot);
+                ItemStack b = barsNow.get(absRow).getSlot(slot);
                 dragSrcHotbar.setSlot(dragSrcSlot, b);
                 barsNow.get(absRow).setSlot(slot, a);
+                // NEW: mark for persistence
+                HotbarManager.markDirty();
+
                 handled = true;
-            } else if (hasExtNow) {
-                // place external item
+            }
+            // 2) External stack (carried/JEI) dropped onto overlay slot
+            else if (hasExtNow) {
                 barsNow.get(absRow).setSlot(slot, externalNow.copy());
+                // NEW: mark for persistence
+                HotbarManager.markDirty();
+
                 clearCarriedIfAny();
                 handled = true;
-            } else {
-                // CLICK (no drag): select hotbar & slot + switch HUD slot
-                HotbarManager.setHotbar(absRow, "container-peek-click-select");
+            }
+            // 3) Simple click on a slot (activation)
+            else {
                 HotbarManager.setSlot(slot);
-                forceSelectSlotClientAndServer(slot);
-                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
                 handled = true;
+            }
+
+            if (handled) {
+                if (Config.enableSounds() && mc.player != null) mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
             }
 
             // If a drag started but wasn't handled above and we modified nothing, restore source (safety)
             if (!handled && overlayDrag && !dragStack.isEmpty() && dragSrcHotbar != null) {
                 dragSrcHotbar.setSlot(dragSrcSlot, dragStack);
+                // NEW: mark for persistence
+                HotbarManager.markDirty();
             }
 
             saveAndSync();
@@ -639,6 +646,7 @@ public final class ContainerPeekOverlay {
             event.setCanceled(true);
         }
     }
+
 
 
 
