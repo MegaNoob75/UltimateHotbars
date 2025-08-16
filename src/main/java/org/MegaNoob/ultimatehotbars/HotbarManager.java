@@ -26,6 +26,12 @@ import net.minecraft.network.Connection;
 
 public class HotbarManager {
 
+    // Suppress background pulls while a wheel switch is pending/committing.
+    private static volatile boolean wheelSwitchPending = false;
+    public static void setWheelSwitchPending(boolean v) { wheelSwitchPending = v; }
+    public static boolean isWheelSwitchPending() { return wheelSwitchPending; }
+
+
     // Holds the virtual hotbars: pages.get(pageIndex).get(hotbarIndex)
     private static final List<List<Hotbar>> pages     = new ArrayList<>();
     // Holds the display names for each page
@@ -328,6 +334,13 @@ public class HotbarManager {
      */
     public static boolean syncFromGameIfChanged() {
         clampHotbarIndex();
+
+        // If a queued wheel switch is pending/committing, skip pull this tick.
+        // This prevents snapshotting the wrong row during rapid oscillation.
+        if (wheelSwitchPending) {
+            return false;
+        }
+
         var mcPlayer = net.minecraft.client.Minecraft.getInstance().player;
         if (mcPlayer == null) return false;
 
@@ -336,7 +349,6 @@ public class HotbarManager {
         for (int i = 0; i < Hotbar.SLOT_COUNT; i++) {
             ItemStack real = mcPlayer.getInventory().getItem(i);
             ItemStack virt = vb.getSlot(i);
-            // Use ItemStack.isSameItem to allow stacked counts etc
             if (!ItemStack.matches(virt, real)) {
                 vb.setSlot(i, real.copy());
                 changed = true;
@@ -347,6 +359,7 @@ public class HotbarManager {
         }
         return changed;
     }
+
 
     /**
      * Returns the world-specific config folder, e.g. ".minecraft/saves/<worldName>"

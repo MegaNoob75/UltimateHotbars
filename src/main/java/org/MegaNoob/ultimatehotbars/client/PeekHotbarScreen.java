@@ -46,6 +46,10 @@ public class PeekHotbarScreen extends Screen {
     private int sourceRow, sourceSlot;
     private ItemStack draggedStack = ItemStack.EMPTY;
 
+    // throttle wheel-based hotbar switching (same fix as hotkeys)
+    private long lastWheelSwitchMs = 0L;
+    private int  pendingWheelHotbar = -1; // -1 = none
+
     public PeekHotbarScreen() {
         super(Component.empty());
     }
@@ -56,24 +60,38 @@ public class PeekHotbarScreen extends Screen {
         if (mc.player == null) return;
 
         long window = mc.getWindow().getWindow();
-        if (!InputConstants.isKeyDown(window, KeyBindings.PEEK_HOTBARS.getKey().getValue())) {
+        if (!com.mojang.blaze3d.platform.InputConstants.isKeyDown(window, KeyBindings.PEEK_HOTBARS.getKey().getValue())) {
             mc.setScreen(null);
             return;
         }
 
-        List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
+        var bars = HotbarManager.getCurrentPageHotbars();
         if (bars.isEmpty()) return;
 
-        // how many rows to show in the floating peek window (keep your existing setting here)
         int rows = Config.peekVisibleRows();
         int totalBars = bars.size();
         int visible = Math.min(totalBars, rows);
 
+        // Show pending selection immediately (visual), else actual
+        int selectedRowForDisplay = Mth.clamp(
+                (WheelSwitchCoordinator.getPendingTarget() >= 0
+                        ? WheelSwitchCoordinator.getPendingTarget()
+                        : HotbarManager.getHotbar()),
+                0, totalBars - 1);
+
+        // Keep selectedRowForDisplay visible right away
+        if (selectedRowForDisplay < peekScrollRow) {
+            peekScrollRow = selectedRowForDisplay;
+        } else if (selectedRowForDisplay >= peekScrollRow + visible) {
+            peekScrollRow = Math.max(0, selectedRowForDisplay - visible + 1);
+        }
+
         int sw = mc.getWindow().getGuiScaledWidth();
         int sh = mc.getWindow().getGuiScaledHeight();
-        Font font = mc.font;
 
-        // geometry
+        final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
+        final int CELL = 20, BORDER = 1, ROW_H = CELL + 2, GAP = 4, NUM_COL_W = 20, DELETE_BOX_W = 20, LIST_W = 100;
+
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
         int firstY = sh - 60 - (rows - 1) * ROW_H;
         int barsStartY = firstY + (rows - visible) * ROW_H;
@@ -83,7 +101,7 @@ public class PeekHotbarScreen extends Screen {
         int listX = baseHbX + bgW + GAP;
         int topY = firstY - 3;
 
-        // DELETE box (same pulse frame as before)
+        // DELETE box (pulse frame)
         int areaH = rows * ROW_H;
         g.fill(deleteX, topY, deleteX + DELETE_BOX_W, topY + areaH, 0x88000000);
         int redColor = ((int)((Math.sin(System.currentTimeMillis() / 200.0) * 0.5 + 0.5) * 255) << 24) | 0x00FF0000;
@@ -93,56 +111,50 @@ public class PeekHotbarScreen extends Screen {
             g.fill(deleteX + i, topY + i, deleteX + i + 1, topY + areaH - i, redColor);
             g.fill(deleteX + DELETE_BOX_W - i - 1, topY + i, deleteX + DELETE_BOX_W - i, topY + areaH - i, redColor);
         }
-        // vertical "DELETE"
         String del = "DELETE";
-        int midX = deleteX + (DELETE_BOX_W - font.width("D")) / 2;
-        int startY = topY + (areaH - del.length() * font.lineHeight) / 2;
+        int midX = deleteX + (mc.font.width("D") < DELETE_BOX_W ? (DELETE_BOX_W - mc.font.width("D")) / 2 : 2);
+        int startY = topY + (areaH - del.length() * mc.font.lineHeight) / 2;
         for (int i = 0; i < del.length(); i++) {
-            g.drawString(font, String.valueOf(del.charAt(i)), midX, startY + i * font.lineHeight, 0xFFFFFFFF);
+            g.drawString(mc.font, String.valueOf(del.charAt(i)), midX, startY + i * mc.font.lineHeight, 0xFFFFFFFF);
         }
 
-        // scroll arrows next to number column
-        if (peekScrollRow > 0) {
-            g.drawString(font, "▲", numX + (NUM_COL_W - font.width("▲")) / 2, firstY - font.lineHeight - 4, 0xFFFFFF);
-        }
-        if (peekScrollRow + visible < totalBars) {
-            g.drawString(font, "▼", numX + (NUM_COL_W - font.width("▼")) / 2, firstY + visible * ROW_H + 2, 0xFFFFFF);
-        }
+        // scroll arrows
+        if (peekScrollRow > 0) g.drawString(mc.font, "▲", numX + (NUM_COL_W - mc.font.width("▲")) / 2, firstY - mc.font.lineHeight - 4, 0xFFFFFF);
+        if (peekScrollRow + visible < totalBars) g.drawString(mc.font, "▼", numX + (NUM_COL_W - mc.font.width("▼")) / 2, firstY + visible * ROW_H + 2, 0xFFFFFF);
 
-        // selected row/slot
-        int selectedRow  = Mth.clamp(HotbarManager.getHotbar(), 0, totalBars - 1);
         int selectedSlot = HotbarManager.getSlot();
 
-        // Hotbar rows — aligned bottom
+        long nowMs = System.currentTimeMillis();
+        // Draw rows — bottom aligned
         for (int i = 0; i < visible; i++) {
             int row = peekScrollRow + i;
             int y   = barsStartY + i * ROW_H;
 
-            // row number label (left column)
+            // row number
             String label = String.valueOf(row + 1);
-            int lx = numX + (NUM_COL_W - font.width(label)) / 2;
-            int ly = y + (ROW_H - font.lineHeight) / 2;
-            g.drawString(font, label, lx, ly, 0xFFFFFFFF, true);
+            int lx = numX + (NUM_COL_W - mc.font.width(label)) / 2;
+            int ly = y + (ROW_H - mc.font.lineHeight) / 2;
+            g.drawString(mc.font, label, lx, ly, 0xFFFFFFFF, true);
 
-            // row background strip
+            // row strip
             g.blit(HOTBAR_TEX, baseHbX - BORDER, y - 3, 0, 0, bgW, ROW_H);
 
-            // === FULL-ROW HIGHLIGHT like HotbarGuiScreen ===
-            if (row == selectedRow) {
+            // full-row highlight (pending or actual)
+            if (row == selectedRowForDisplay) {
                 float[] c = Config.highlightColor();
                 int color = ((int)(c[3]*255)<<24) | ((int)(c[0]*255)<<16) | ((int)(c[1]*255)<<8) | (int)(c[2]*255);
                 g.fill(baseHbX - BORDER, y - 3, baseHbX - BORDER + bgW, y - 3 + ROW_H, color);
             }
 
             // items
-            for (int s = 0; s < Hotbar.SLOT_COUNT; s++) {
-                ItemStack stack = bars.get(row).getSlot(s);
-                int x = baseHbX + s * CELL + (CELL - 16) / 2;
+            for (int sIdx = 0; sIdx < Hotbar.SLOT_COUNT; sIdx++) {
+                ItemStack stack = bars.get(row).getSlot(sIdx);
+                int x = baseHbX + sIdx * CELL + (CELL - 16) / 2;
                 g.renderItem(stack, x, y);
-                g.renderItemDecorations(font, stack, x, y);
+                g.renderItemDecorations(mc.font, stack, x, y);
             }
 
-            // === BLINKING HOVER BORDER on slot (same feel as in HotbarGuiScreen) ===
+            // blinking hover border
             int cellLeft = baseHbX - BORDER;
             int cellTop  = y - 3;
             if (mouseX >= cellLeft && mouseX < cellLeft + bgW && mouseY >= cellTop && mouseY < cellTop + ROW_H) {
@@ -151,46 +163,46 @@ public class PeekHotbarScreen extends Screen {
                     int hx = baseHbX + sHover * CELL;
                     int hy = y - 3;
                     float[] arr = Config.hoverBorderColor();
-                    long now = System.currentTimeMillis();
-                    float t = (now % 1000L) / 1000f;
+                    float t = (nowMs % 1000L) / 1000f;
                     float pulse = (float)(Math.sin(2 * Math.PI * t) * 0.5 + 0.5f);
                     int a  = (int)(arr[3] * pulse * 255f);
                     int rc = (int)(arr[0] * 255f), gc = (int)(arr[1] * 255f), bc = (int)(arr[2] * 255f);
                     int col = (a<<24) | (rc<<16) | (gc<<8) | bc;
                     int tpx = 1;
-                    g.fill(hx,            hy,             hx + CELL,      hy + tpx,       col);
-                    g.fill(hx,            hy + ROW_H- tpx, hx + CELL,      hy + ROW_H,     col);
-                    g.fill(hx,            hy,             hx + tpx,       hy + ROW_H,     col);
-                    g.fill(hx + CELL- tpx, hy,             hx + CELL,      hy + ROW_H,     col);
+                    g.fill(hx,              hy,               hx + CELL,      hy + tpx,       col);
+                    g.fill(hx,              hy + ROW_H - tpx, hx + CELL,      hy + ROW_H,     col);
+                    g.fill(hx,              hy,               hx + tpx,       hy + ROW_H,     col);
+                    g.fill(hx + CELL - tpx, hy,               hx + CELL,      hy + ROW_H,     col);
                 }
             }
         }
 
         // Page list
         int listH = rows * ROW_H;
-        int trackX = listX + LIST_W - 6;
-        g.fill(listX, topY, listX + LIST_W, topY + listH, 0x88000000);
+        int trackX = listX + 100 - 6;
+        g.fill(listX, topY, listX + 100, topY + listH, 0x88000000);
         g.fill(trackX, topY, trackX + 4, topY + listH, 0x44000000);
-        List<String> pageNames = HotbarManager.getPageNames();
+
+        var pageNames = HotbarManager.getPageNames();
         int count = pageNames.size();
         int pageMax = Math.max(0, count - rows);
         pageScrollRow = Mth.clamp(pageScrollRow, 0, pageMax);
-        int selected = HotbarManager.getPage();
+        int selectedPage = HotbarManager.getPage();
 
         for (int i = 0; i < rows; i++) {
             int idx = pageScrollRow + i;
             if (idx >= count) break;
             int y = firstY + i * ROW_H;
 
-            if (idx == selected) {
-                g.fill(listX, y - 3, listX + LIST_W - 6, y - 3 + ROW_H, 0x44FFFFFF);
+            if (idx == selectedPage) {
+                g.fill(listX, y - 3, listX + 100 - 6, y - 3 + ROW_H, 0x44FFFFFF);
             }
-            if (mouseX >= listX && mouseX < listX + LIST_W - 6 && mouseY >= y - 3 && mouseY < y - 3 + ROW_H) {
+            if (mouseX >= listX && mouseX < listX + 100 - 6 && mouseY >= y - 3 && mouseY < y - 3 + ROW_H) {
                 float[] hc = Config.highlightColor();
                 int col = ((int)(hc[3]*255) << 24) | ((int)(hc[0]*255) << 16) | ((int)(hc[1]*255) << 8) | (int)(hc[2]*255);
-                g.fill(listX, y - 3, listX + LIST_W - 6, y - 3 + ROW_H, col);
+                g.fill(listX, y - 3, listX + 100 - 6, y - 3 + ROW_H, col);
             }
-            g.drawString(font, pageNames.get(idx), listX + 2, y, 0xFFFFFF);
+            g.drawString(mc.font, pageNames.get(idx), listX + 2, y, 0xFFFFFF);
         }
 
         if (count > rows) {
@@ -198,13 +210,12 @@ public class PeekHotbarScreen extends Screen {
             int thumbY = topY + (pageScrollRow * (listH - thumbH)) / pageMax;
             g.fill(trackX, thumbY, trackX + 4, thumbY + thumbH, 0xAAFFFFFF);
         }
-
-        // drag ghost
-        if (dragging && !draggedStack.isEmpty()) {
-            g.renderItem(draggedStack, mouseX, mouseY);
-            g.renderItemDecorations(font, draggedStack, mouseX, mouseY);
-        }
     }
+
+
+
+
+
 
 
     @Override
@@ -212,7 +223,6 @@ public class PeekHotbarScreen extends Screen {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return super.mouseScrolled(mouseX, mouseY, delta);
 
-        // Layout mirrors render()
         List<Hotbar> bars = HotbarManager.getCurrentPageHotbars();
         if (bars.isEmpty()) return super.mouseScrolled(mouseX, mouseY, delta);
 
@@ -228,40 +238,41 @@ public class PeekHotbarScreen extends Screen {
         final int barsY   = firstY + (rowsPref - visible) * ROW_H;
         final int baseHbX = (sw - bgW) / 2 + BORDER;
 
-        // Page list geometry (same as render)
-        final int numX    = baseHbX - BORDER - GAP - NUM_COL_W;
-        final int deleteX = numX - GAP - DELETE_BOX_W;
+        // Page list geometry
         final int listX   = baseHbX + bgW + GAP;
         final int topY    = firstY - 3;
         final int listH   = rowsPref * ROW_H;
 
-        // Over page list? scroll pages
         boolean overList = mouseX >= listX && mouseX < listX + LIST_W && mouseY >= topY && mouseY < topY + listH;
-
         if (overList) {
             int count = HotbarManager.getPageNames().size();
             int max = Math.max(0, count - rowsPref);
-            int step = (int) Math.signum(delta); // positive = scroll up
+            int step = (int) Math.signum(delta);
             pageScrollRow = Mth.clamp(pageScrollRow - step, 0, max);
             return true;
         }
 
-        // Over hotbar rows? change selected hotbar (like HotbarGuiScreen)
         boolean overBars = mouseX >= (baseHbX - BORDER) && mouseX < (baseHbX - BORDER + bgW)
                 && mouseY >= barsY - 3 && mouseY < barsY - 3 + visible * ROW_H;
 
         if (overBars) {
             int selected = HotbarManager.getHotbar();
             int step = (int) Math.signum(delta);
-            int newSel = Mth.clamp(selected - step, 0, totalBars - 1);
+
+            // ---- WRAP AROUND (matches hotkeys) ----
+            int newSel = Math.floorMod(selected - step, totalBars);
+
             if (newSel != selected) {
-                HotbarManager.setHotbar(newSel, "peek-scroll");
-                // keep in view
+                // queue for safe commit on client tick
+                WheelSwitchCoordinator.request(newSel);
+
+                // keep requested row in view immediately
                 if (newSel < peekScrollRow) {
                     peekScrollRow = newSel;
                 } else if (newSel >= peekScrollRow + visible) {
                     peekScrollRow = Math.max(0, newSel - visible + 1);
                 }
+                // play the click sound now
                 if (Config.enableSounds() && mc.player != null) {
                     mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
                 }
@@ -271,6 +282,10 @@ public class PeekHotbarScreen extends Screen {
 
         return super.mouseScrolled(mouseX, mouseY, delta);
     }
+
+
+
+
 
 
     @Override

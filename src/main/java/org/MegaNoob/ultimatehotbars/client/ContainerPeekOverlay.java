@@ -19,6 +19,7 @@ import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import org.lwjgl.glfw.GLFW;
+import org.MegaNoob.ultimatehotbars.client.WheelSwitchCoordinator;
 
 import java.util.List;
 
@@ -37,6 +38,10 @@ import java.util.List;
 public final class ContainerPeekOverlay {
 
     private ContainerPeekOverlay() {}
+
+    // throttle wheel-based hotbar switching in the overlay
+    private static long lastBarsWheelMs = 0L;
+    private static int  pendingWheelHotbar = -1; // -1 = none
 
     // === Visual constants (match Peek look) ===
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
@@ -126,6 +131,8 @@ public final class ContainerPeekOverlay {
         return ItemStack.EMPTY;
     }
 
+
+
     // ---------- RENDER ----------
     @SubscribeEvent
     public static void onRenderPost(ScreenEvent.Render.Post event) {
@@ -144,8 +151,6 @@ public final class ContainerPeekOverlay {
         int rowsRequested = Math.max(1, Config.peekVisibleRows());
         int totalBars = bars.size();
         int rows = Math.min(rowsRequested, totalBars);
-
-        // UI always reserves 5 rows for DELETE + Page List
         int rowsUI = 5;
 
         final int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
@@ -211,11 +216,10 @@ public final class ContainerPeekOverlay {
             g.drawString(font, String.valueOf(del.charAt(i)), midX, startY + i * font.lineHeight, 0xFFFFFFFF);
         }
 
-        // === Bottom-up placement for the hotbar grid inside the 5-row window ===
-        // Bars start at the bottom of the 5-row area and stack upward.
+        // Bottom-up hotbars start Y inside the 5-row window
         int barsStartY = firstY + (rowsUI - rows) * ROW_H;
 
-        // Scroll arrows use barsStartY now
+        // scroll arrows
         if (peekScrollRow > 0) {
             g.drawString(font, "▲", numX + (NUM_COL_W - font.width("▲")) / 2, barsStartY - font.lineHeight - 2, 0xFFFFFF);
         }
@@ -223,19 +227,32 @@ public final class ContainerPeekOverlay {
             g.drawString(font, "▼", numX + (NUM_COL_W - font.width("▼")) / 2, barsStartY + visible * ROW_H + 2, 0xFFFFFF);
         }
 
-        int selectedRow  = Mth.clamp(HotbarManager.getHotbar(), 0, totalBars - 1);
+        // --- SHOW PENDING SELECTION IMMEDIATELY (this is the key change) ---
+        int selectedRowForDisplay = Mth.clamp(
+                (WheelSwitchCoordinator.getPendingTarget() >= 0
+                        ? WheelSwitchCoordinator.getPendingTarget()
+                        : HotbarManager.getHotbar()),
+                0, totalBars - 1);
+
+        // keep the displayed selection in view (and do it BEFORE drawing rows)
+        if (selectedRowForDisplay < peekScrollRow) {
+            peekScrollRow = selectedRowForDisplay;
+        } else if (selectedRowForDisplay >= peekScrollRow + visible) {
+            peekScrollRow = Math.max(0, selectedRowForDisplay - visible + 1);
+        }
+
         int selectedSlot = HotbarManager.getSlot();
 
         // Mouse in local overlay space
         int mxLocal = (int) ((event.getMouseX() - originX) / scale);
         int myLocal = (int) ((event.getMouseY() - originY) / scale);
 
-        // Draw rows bottom-up (visually) but still iterate i=0..visible-1
+        // draw rows
         for (int i = 0; i < visible; i++) {
             int row = peekScrollRow + i;
             int y   = barsStartY + i * ROW_H;
 
-            // number label
+            // number column
             String label = String.valueOf(row + 1);
             int lx = numX + (NUM_COL_W - font.width(label)) / 2;
             int ly = y + (ROW_H - font.lineHeight) / 2;
@@ -244,14 +261,14 @@ public final class ContainerPeekOverlay {
             // row strip
             g.blit(HOTBAR_TEX, baseHbX - BORDER, y - 3, 0, 0, bgW, ROW_H);
 
-            // full-row highlight like GUI
-            if (row == selectedRow) {
+            // full-row highlight based on displayed selection (includes pending)
+            if (row == selectedRowForDisplay) {
                 float[] c = Config.highlightColor();
                 int color = ((int)(c[3]*255)<<24) | ((int)(c[0]*255)<<16) | ((int)(c[1]*255)<<8) | (int)(c[2]*255);
                 g.fill(baseHbX - BORDER, y - 3, baseHbX - BORDER + bgW, y - 3 + ROW_H, color);
             }
 
-            // slot items (hide source while dragging from overlay)
+            // items
             for (int sIdx = 0; sIdx < Hotbar.SLOT_COUNT; sIdx++) {
                 int x = baseHbX + sIdx * CELL + (CELL - 16) / 2;
                 boolean hide = dragging && dragSource == DragSource.OVERLAY
@@ -266,7 +283,7 @@ public final class ContainerPeekOverlay {
                 }
             }
 
-            // blinking hover border for the hovered slot
+            // blinking hover border
             int rowLeft = baseHbX - BORDER;
             int rowTop  = y - 3;
             if (mxLocal >= rowLeft && mxLocal < rowLeft + bgW && myLocal >= rowTop && myLocal < rowTop + ROW_H) {
@@ -326,6 +343,9 @@ public final class ContainerPeekOverlay {
             g.renderItemDecorations(font, dragStack, sx, sy);
         }
     }
+
+
+
 
 
 
@@ -647,10 +667,10 @@ public final class ContainerPeekOverlay {
 
         int bgW = Hotbar.SLOT_COUNT * CELL + BORDER * 2;
         int deleteX = 0;
-        int numX = deleteX + DELETE_BOX_W + GAP;
+        int numX    = deleteX + DELETE_BOX_W + GAP;
         int baseHbX = numX + NUM_COL_W + GAP + BORDER;
-        int listX  = baseHbX + (bgW - BORDER) + GAP;
-        int firstY = 0;
+        int listX   = baseHbX + (bgW - BORDER) + GAP;
+        int firstY  = 0;
 
         int barsStartY = firstY + (rowsUI - rows) * ROW_H;
         int listH  = rowsUI * ROW_H;
@@ -661,39 +681,48 @@ public final class ContainerPeekOverlay {
         double dy = event.getScrollDelta();
         if (dy == 0.0) return;
 
-        Minecraft mc = Minecraft.getInstance();
-
         if (inList) {
             int count = HotbarManager.getPageNames().size();
             int pageMax = Math.max(0, count - rowsUI);
             pageScrollRow = Mth.clamp(pageScrollRow - (int)Math.signum(dy), 0, pageMax);
-            if (Config.enableSounds() && mc.player != null) {
-                mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
+            if (Config.enableSounds() && Minecraft.getInstance().player != null) {
+                Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
             }
             event.setCanceled(true);
             return;
         }
 
         if (inBars) {
-            // Change the selected hotbar (like HotbarGuiScreen) and keep it visible
             int selected = HotbarManager.getHotbar();
             int step = (int) Math.signum(dy);
-            int newSel = Mth.clamp(selected - step, 0, totalBars - 1);
+
+            // ---- WRAP AROUND (matches hotkeys) ----
+            int newSel = Math.floorMod(selected - step, totalBars);
+
             if (newSel != selected) {
-                HotbarManager.setHotbar(newSel, "container-peek-scroll");
+                // queue for safe commit
+                WheelSwitchCoordinator.request(newSel);
+
+                // keep requested row visible immediately (bottom-up window)
                 int visible = Math.min(totalBars, rows);
                 if (newSel < peekScrollRow) {
                     peekScrollRow = newSel;
                 } else if (newSel >= peekScrollRow + visible) {
                     peekScrollRow = Math.max(0, newSel - visible + 1);
                 }
-                if (Config.enableSounds() && mc.player != null) {
-                    mc.player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
+
+                // click sound
+                if (Config.enableSounds() && Minecraft.getInstance().player != null) {
+                    Minecraft.getInstance().player.playSound(SoundEvents.UI_BUTTON_CLICK.get(), 0.7f, 1.0f);
                 }
             }
             event.setCanceled(true);
         }
     }
+
+
+
+
 
 
 
