@@ -1,8 +1,6 @@
 package org.MegaNoob.ultimatehotbars.client;
 
-import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -17,7 +15,7 @@ import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.fml.common.Mod;
-import org.lwjgl.glfw.GLFW;
+
 
 import java.util.List;
 
@@ -27,6 +25,9 @@ import java.util.List;
         bus   = Mod.EventBusSubscriber.Bus.FORGE
 )
 public class PeekHotbarScreen extends Screen {
+
+
+
     private static final ResourceLocation HOTBAR_TEX = new ResourceLocation("textures/gui/widgets.png");
     private static final int CELL = 20;
     private static final int BORDER = 1;
@@ -53,6 +54,8 @@ public class PeekHotbarScreen extends Screen {
     public PeekHotbarScreen() {
         super(Component.empty());
     }
+
+
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float pt) {
@@ -343,10 +346,25 @@ public class PeekHotbarScreen extends Screen {
             HotbarManager.setHotbar(absRow, "peek-click-select");
             HotbarManager.setSlot(slot);
 
+            // NEW: prime potential drag from this slot (we only lift after DRAG_THRESHOLD in mouseDragged)
+            ItemStack src = bars.get(absRow).getSlot(slot);
+            if (!src.isEmpty()) {
+                potentialDrag = true;
+                dragging = false;
+                pressX = mouseX;
+                pressY = mouseY;
+                sourceRow = absRow;
+                sourceSlot = slot;
+                draggedStack = src.copy();
+            } else {
+                potentialDrag = false;
+                draggedStack = ItemStack.EMPTY;
+            }
+
             // Also switch the vanilla selected slot (client + server)
             if (mc.player != null && mc.getConnection() != null) {
                 mc.player.getInventory().selected = slot;
-                mc.getConnection().send(new net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket(slot));
+                mc.getConnection().send(new ServerboundSetCarriedItemPacket(slot));
             }
 
             if (Config.enableSounds() && mc.player != null) {
@@ -357,6 +375,7 @@ public class PeekHotbarScreen extends Screen {
 
         return super.mouseClicked(mouseX, mouseY, button);
     }
+
 
     @Override
     public boolean mouseDragged(double mx, double my, int button, double dx, double dy) {
@@ -476,6 +495,13 @@ public class PeekHotbarScreen extends Screen {
         return true;
     }
 
+    public boolean isPeekDragging() {
+        return this.dragging;
+    }
+
+    public ItemStack getPeekDraggedStack() {
+        return this.draggedStack;
+    }
 
 
     @Override

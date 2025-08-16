@@ -19,7 +19,6 @@ import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import org.lwjgl.glfw.GLFW;
-import org.MegaNoob.ultimatehotbars.client.WheelSwitchCoordinator;
 
 import java.util.List;
 
