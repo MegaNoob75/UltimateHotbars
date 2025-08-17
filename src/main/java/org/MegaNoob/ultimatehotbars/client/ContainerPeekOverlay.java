@@ -19,7 +19,8 @@ import org.MegaNoob.ultimatehotbars.Hotbar;
 import org.MegaNoob.ultimatehotbars.HotbarManager;
 import org.MegaNoob.ultimatehotbars.ultimatehotbars;
 import org.lwjgl.glfw.GLFW;
-
+import org.MegaNoob.ultimatehotbars.network.PacketHandler;
+import org.MegaNoob.ultimatehotbars.network.SetCarriedPacket;
 import java.util.List;
 
 /**
@@ -127,13 +128,26 @@ public final class ContainerPeekOverlay {
         return ItemStack.EMPTY;
     }
     private static void setCarried(AbstractContainerScreen<?> acs, ItemStack stack) {
-        try { acs.getMenu().setCarried(stack == null ? ItemStack.EMPTY : stack); return; }
-        catch (Throwable ignored) {}
-        var mc = Minecraft.getInstance();
-        if (mc != null && mc.player != null && mc.player.containerMenu != null) {
-            mc.player.containerMenu.setCarried(stack == null ? ItemStack.EMPTY : stack);
+        ItemStack safe = (stack == null) ? ItemStack.EMPTY : stack;
+
+        // Update client-side carried (prefer the menu, fallback to player.containerMenu)
+        try {
+            acs.getMenu().setCarried(safe);
+        } catch (Throwable ignored) {
+            var mc = Minecraft.getInstance();
+            if (mc != null && mc.player != null && mc.player.containerMenu != null) {
+                mc.player.containerMenu.setCarried(safe);
+            }
+        }
+
+        // ALSO update server-side carried to avoid desync/drops
+        try {
+            PacketHandler.CHANNEL.sendToServer(new SetCarriedPacket(safe.copy()));
+        } catch (Throwable ignored) {
+            // best-effort; if networking isn’t available we still changed the client
         }
     }
+
 
     // ---------- RENDER ----------
     @SubscribeEvent
@@ -437,22 +451,34 @@ public final class ContainerPeekOverlay {
         // If cursor moves into the container region, cancel overlay-origin drag to avoid double-handling
         if (event.getMouseX() >= acs.getGuiLeft()) {
             if (dragging && dragSource == DragSource.OVERLAY) {
-                dragging = false; dragSource = DragSource.NONE; dragSrcHotbar = null; dragSrcSlot = -1; dragStack = ItemStack.EMPTY;
+                dragging = false;
+                dragSource = DragSource.NONE;
+                dragSrcHotbar = null;
+                dragSrcSlot = -1;
+                dragStack = ItemStack.EMPTY;
             }
-            return;
+            return; // do not cancel: let vanilla handle drags inside the container area
         }
 
+        // Map to overlay-local space; if outside overlay, do nothing
         int mxLocal = (int) ((event.getMouseX() - lastOriginX) / lastScale);
         int myLocal = (int) ((event.getMouseY() - lastOriginY) / lastScale);
         if (mxLocal < 0 || myLocal < 0 || mxLocal >= lastNaturalW || myLocal >= lastNaturalH) return;
 
+        // Track whether the pointer moved far enough to be a "drag"
         if (!draggedBeyondThreshold &&
                 (Math.abs(mxLocal - pressLocalX) > DRAG_THRESHOLD || Math.abs(myLocal - pressLocalY) > DRAG_THRESHOLD)) {
             draggedBeyondThreshold = true;
         }
 
-        event.setCanceled(true); // interacting with overlay
+        // IMPORTANT CHANGE:
+        // Only cancel the event while we're actually dragging FROM the overlay.
+        // This lets vanilla drags (e.g., hotbar -> container) pass through normally.
+        if (dragging && dragSource == DragSource.OVERLAY) {
+            event.setCanceled(true);
+        }
     }
+
 
     // ---------- RELEASE (all overlay handling here; we cancel vanilla/creative) ----------
     @SubscribeEvent

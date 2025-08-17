@@ -4,11 +4,14 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;
 
+
 /**
  * Handles registration of network packets for the UltimateHotbars mod.
  */
 public class PacketHandler {
     private static final String PROTOCOL_VERSION = "1";
+
+
 
     /**
      * The main channel for sending/receiving packets.
@@ -33,5 +36,15 @@ public class PacketHandler {
                 SyncHotbarPacket::decode,
                 SyncHotbarPacket::handle
         );
+
+        // NEW: keep client/server "carried" stacks in sync
+        CHANNEL.registerMessage(
+                packetId++,
+                SetCarriedPacket.class,
+                SetCarriedPacket::encode,
+                SetCarriedPacket::decode,
+                SetCarriedPacket::handle
+        );
     }
+
 }
