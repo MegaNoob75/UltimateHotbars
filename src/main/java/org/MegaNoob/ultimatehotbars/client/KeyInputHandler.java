@@ -296,21 +296,17 @@ public class KeyInputHandler {
         switch (index) {
             case 0 -> { // hotbar backwards
                 if (hotbarCount > 1) {
-                    if (HotbarManager.syncFromGameIfChanged()) {
-                        HotbarManager.saveHotbars();
-                    }
-
-                    HotbarManager.setHotbar(HotbarManager.getHotbar() - 1, "triggerKey(-)");
+                    // Queue through the same coordinator used by wheel scrolling.
+                    // This avoids races with the wheel by snapshotting+switching once per tick.
+                    int target = HotbarManager.getHotbar() - 1;
+                    org.MegaNoob.ultimatehotbars.client.WheelSwitchCoordinator.request(target);
                     playedSound = true;
                 }
             }
             case 1 -> { // hotbar forwards
                 if (hotbarCount > 1) {
-                    if (HotbarManager.syncFromGameIfChanged()) {
-                        HotbarManager.saveHotbars();
-                    }
-
-                    HotbarManager.setHotbar(HotbarManager.getHotbar() + 1, "triggerKey(+)");
+                    int target = HotbarManager.getHotbar() + 1;
+                    org.MegaNoob.ultimatehotbars.client.WheelSwitchCoordinator.request(target);
                     playedSound = true;
                 }
             }
@@ -319,7 +315,6 @@ public class KeyInputHandler {
                     if (HotbarManager.syncFromGameIfChanged()) {
                         HotbarManager.saveHotbars();
                     }
-
                     int curr = HotbarManager.getPage();
                     int prev = ((curr - 1) % pageCount + pageCount) % pageCount;
                     HotbarManager.setPage(prev, 0);
@@ -331,7 +326,6 @@ public class KeyInputHandler {
                     if (HotbarManager.syncFromGameIfChanged()) {
                         HotbarManager.saveHotbars();
                     }
-
                     int curr = HotbarManager.getPage();
                     int next = ((curr + 1) % pageCount + pageCount) % pageCount;
                     HotbarManager.setPage(next, 0);
@@ -345,13 +339,13 @@ public class KeyInputHandler {
         }
         if (Config.enableSounds() && mc.player != null && (playedSound || pageChanged)) {
             mc.player.playSound(
-                    pageChanged
-                            ? SoundEvents.NOTE_BLOCK_BASEDRUM.get()
+                    pageChanged ? SoundEvents.NOTE_BLOCK_BASEDRUM.get()
                             : SoundEvents.UI_BUTTON_CLICK.get(),
                     0.7f, pageChanged ? 0.9f : 1.4f
             );
         }
     }
+
 
 
 
